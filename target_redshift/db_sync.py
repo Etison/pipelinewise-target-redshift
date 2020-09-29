@@ -402,6 +402,7 @@ class DbSync:
         stream = stream_schema_message['stream']
         stage_table = self.table_name(stream, is_stage=True)
         target_table = self.table_name(stream, is_stage=False)
+        history_table = self.table_name(stream + '_history', is_stage=False)
 
         self.logger.info("Loading {} rows into '{}'".format(count, self.table_name(stream, is_stage=True)))
 
@@ -472,17 +473,49 @@ class DbSync:
                 #           the number of affected rows correctly
                 if len(stream_schema_message['key_properties']) > 0:
                     # Step 5/a/1: Update existing records
+                    self.logger.info('DOING UPDATES')
                     if not self.skip_updates:
-                        update_sql = """UPDATE {}
-                            SET {}
+                        # set _sys_end_time to _sdc_extracted_at
+                        # Open question does this capture... deletes?
+                        update_sql = """
+                            UPDATE {}
+                            SET _sys_end_time = s._sdc_extracted_at
                             FROM {} s
                             WHERE {}
-                        """.format(
-                            target_table,
-                            ', '.join(['{} = s.{}'.format(c['name'], c['name']) for c in columns_with_trans]),
-                            stage_table,
-                            self.primary_key_merge_condition()
-                        )
+                        """.format(target_table, stage_table, self.primary_key_merge_condition())
+                        
+                        self.logger.debug("Running query: {}".format(update_sql))
+                        cur.execute(update_sql)
+                        
+                        # insert into history where sys_end_time is not null
+                        update_sql = """
+                        INSERT INTO {} ({})
+                        SELECT {}
+                        FROM {} s
+                        WHERE _sys_end_time IS NOT NULL
+                        """.format(history_table,
+                                   ', '.join([c['name'] for c in columns_with_trans]),
+                                   ', '.join(['s.{}'.format(c['name']) for c in columns_with_trans]),
+                                   target_table)
+                        self.logger.debug("Running query: {}".format(update_sql))
+                        cur.execute(update_sql)
+                        
+                        # delete anything that has a _sys_end_time set on it
+                        update_sql = """
+                        DELETE FROM {} WHERE _sys_end_time IS NOT NULL
+                        """.format(target_table)
+                                   
+#                        update_sql = """UPDATE {}
+#                            SET {}
+#                            FROM {} s
+#                            WHERE {}
+#                        """.format(
+#                            target_table,
+#                            ', '.join(['{} = s.{}'.format(c['name'], c['name']) for c in columns_with_trans]),
+#                            stage_table,
+#                            self.primary_key_merge_condition()
+#                        )
+
                         self.logger.debug("Running query: {}".format(update_sql))
                         cur.execute(update_sql)
                         updates = cur.rowcount
@@ -490,17 +523,12 @@ class DbSync:
                     # Step 5/a/2: Insert new records
                     insert_sql = """INSERT INTO {} ({})
                         SELECT {}
-                        FROM {} s LEFT JOIN {}
-                        ON {}
-                        WHERE {}
+                        FROM {} s
                     """.format(
                         target_table,
                         ', '.join([c['name'] for c in columns_with_trans]),
                         ', '.join(['s.{}'.format(c['name']) for c in columns_with_trans]),
                         stage_table,
-                        target_table,
-                        self.primary_key_merge_condition(),
-                        ' AND '.join(['{}.{} IS NULL'.format(target_table, c) for c in primary_column_names(stream_schema_message)])
                     )
                     self.logger.debug("Running query: {}".format(insert_sql))
                     cur.execute(insert_sql)
@@ -537,8 +565,9 @@ class DbSync:
     def column_names(self):
         return [safe_column_name(name) for name in self.flatten_schema]
 
-    def create_table_query(self, is_stage=False):
-        stream_schema_message = self.stream_schema_message
+    def create_table_query(self, stream=None, is_stage=False):
+        if stream is None:
+            stream = self.stream_schema_message['stream']
         columns = [
             column_clause(
                 name,
@@ -551,13 +580,17 @@ class DbSync:
             if len(stream_schema_message['key_properties']) else []
 
         return 'CREATE TABLE IF NOT EXISTS {} ({})'.format(
-            self.table_name(stream_schema_message['stream'], is_stage),
+            self.table_name(stream, is_stage),
             ', '.join(columns + primary_key)
         )
 
-    def drop_table_query(self, is_stage=False):
-        stream_schema_message = self.stream_schema_message
-        return 'DROP TABLE IF EXISTS {}'.format(self.table_name(stream_schema_message['stream'], is_stage))
+    def drop_table_query(self, stream=None, is_stage=False):
+        if stream is None:
+            stream = self.stream_schema_message['stream']
+        sql = 'DROP TABLE IF EXISTS {}'.format(self.table_name(stream, is_stage))
+
+        self.logger.info(sql)
+        
 
     def grant_usage_on_schema(self, schema_name, grantee, to_group=False):
         query = "GRANT USAGE ON SCHEMA {} TO {} {}".format(schema_name, 'GROUP' if to_group else '', grantee)
@@ -631,9 +664,11 @@ class DbSync:
         if filter_schemas is not None: sql = sql + " AND LOWER(c.table_schema) IN (" + ', '.join("'{}'".format(s).lower() for s in filter_schemas) + ")"
         return self.query(sql)
 
-    def update_columns(self):
-        stream_schema_message = self.stream_schema_message
-        stream = stream_schema_message['stream']
+    def update_columns(self, stream=None):
+        if stream is None:
+            stream_schema_message = self.stream_schema_message
+            stream = stream_schema_message['stream']
+        
         table_name = self.table_name(stream, is_stage=False, without_schema=True)
 
         if self.table_cache:
@@ -706,36 +741,41 @@ class DbSync:
         self.logger.info('Adding column: {}'.format(add_column))
         self.query(add_column)
 
-    def create_table(self, is_stage=False):
-        stream_schema_message = self.stream_schema_message
-        stream = stream_schema_message['stream']
+    def create_table(self, stream=None,is_stage=False):
+        if stream is None:
+            stream = self.stream_schema_message['stream']
         self.logger.info("(Re)creating {} table...".format(self.table_name(stream, is_stage)))
 
-        self.query(self.drop_table_query(is_stage=is_stage))
-        self.query(self.create_table_query(is_stage=is_stage))
+        self.query(self.drop_table_query(stream=stream, is_stage=is_stage))
+        self.query(self.create_table_query(stream=stream, is_stage=is_stage))
 
-    def create_table_and_grant_privilege(self, is_stage=False):
-        self.create_table(is_stage=is_stage)
+    def create_table_and_grant_privilege(self, stream=None, is_stage=False):
+        if stream is None:
+            stream = self.stream_schema_message['stream']
+        self.create_table(stream, is_stage=is_stage)
         self.grant_privilege(self.schema_name, self.grantees, self.grant_select_on_all_tables_in_schema)
 
     def sync_table(self):
         stream_schema_message = self.stream_schema_message
-        stream = stream_schema_message['stream']
-        table_name = self.table_name(stream, is_stage=False, without_schema=True)
-        table_name_with_schema = self.table_name(stream, is_stage=False, without_schema=False)
+        raw_stream = stream_schema_message['stream']
+        
+        for stream in (raw_stream, raw_stream + '_history'):
+            table_name = self.table_name(stream, is_stage=False, without_schema=True)
+            table_name_with_schema = self.table_name(stream, is_stage=False, without_schema=False)
 
-        if self.table_cache:
-            found_tables = list(filter(lambda x: x['table_schema'] == self.schema_name.lower() and
-                                                 f'"{x["table_name"].upper()}"' == table_name,
-                                       self.table_cache))
-        else:
-            found_tables = [table for table in (self.get_tables(self.schema_name.lower()))
-                            if f'"{table["table_name"].upper()}"' == table_name]
+            if self.table_cache:
+                found_tables = list(filter(lambda x: x['table_schema'] == self.schema_name.lower() and
+                                                    f'"{x["table_name"].upper()}"' == table_name,
+                                        self.table_cache))
+            else:
+                found_tables = [table for table in (self.get_tables(self.schema_name.lower()))
+                                if f'"{table["table_name"].upper()}"' == table_name]
 
-        # Create target table if not exists
-        if len(found_tables) == 0:
-            self.logger.info("Table '{}' does not exist. Creating...".format(table_name_with_schema))
-            self.create_table_and_grant_privilege()
-        else:
-            self.logger.info("Table '{}' exists".format(self.schema_name))
-            self.update_columns()
+            self.logger.info(found_tables)
+            if len(found_tables) == 0:
+                self.logger.info("Table '{}' does not exist. Creating...".format(table_name_with_schema))
+                asdf
+                self.create_table_and_grant_privilege(stream=stream)
+            else:
+                self.logger.info("Table '{}' exists".format(self.schema_name))
+                self.update_columns(stream=stream)

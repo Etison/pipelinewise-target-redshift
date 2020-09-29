@@ -55,11 +55,21 @@ def add_metadata_columns_to_schema(schema_message):
     Metadata columns gives information about data injections
     """
     extended_schema_message = schema_message
+    
     extended_schema_message['schema']['properties']['_sdc_extracted_at'] = {'type': ['null', 'string'],
                                                                             'format': 'date-time'}
     extended_schema_message['schema']['properties']['_sdc_batched_at'] = {'type': ['null', 'string'],
                                                                           'format': 'date-time'}
     extended_schema_message['schema']['properties']['_sdc_deleted_at'] = {'type': ['null', 'string']}
+
+    extended_schema_message['schema']['properties']['_sys_add_time'] = {'type': ['null', 'string'],
+                                                                            'format': 'date-time'}
+
+    extended_schema_message['schema']['properties']['_sys_end_time'] = {'type': ['null', 'string'],
+                                                                            'format': 'date-time'}
+
+    extended_schema_message['schema']['properties']['_is_deleted'] = {'type': ['null', 'boolean']}
+
 
     return extended_schema_message
 
@@ -72,6 +82,11 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
     extended_record['_sdc_extracted_at'] = record_message.get('time_extracted')
     extended_record['_sdc_batched_at'] = datetime.now().isoformat()
     extended_record['_sdc_deleted_at'] = record_message.get('record', {}).get('_sdc_deleted_at')
+
+    # CF specific extractions
+    extended_record['_sys_add_time'] = record_message.get('time_extracted')
+    extended_record['_is_deleted']     = record_message.get('record', {}).get('_sdc_deleted_at') is not None
+    extended_record['_sys_end_time'] = record_message.get('record', {}).get('_sdc_deleted_at')
 
     return extended_record
 
