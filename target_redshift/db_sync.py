@@ -13,7 +13,6 @@ import psycopg2.extras
 import inflection
 from singer import get_logger
 
-
 DEFAULT_VARCHAR_LENGTH = 10000
 SHORT_VARCHAR_LENGTH = 256
 LONG_VARCHAR_LENGTH = 65535
@@ -217,6 +216,7 @@ class DbSync:
         """
         self.connection_config = connection_config
         self.stream_schema_message = stream_schema_message
+        
         self.table_cache = table_cache
 
         # logger to be used across the class's methods
@@ -329,7 +329,7 @@ class DbSync:
         return psycopg2.connect(conn_string)
 
     def query(self, query, params=None):
-        self.logger.debug("Running query: {}".format(query))
+        self.logger.info("Running query: {}".format(query))
         with self.open_connection() as connection:
             with connection.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute(
@@ -566,6 +566,7 @@ class DbSync:
         return [safe_column_name(name) for name in self.flatten_schema]
 
     def create_table_query(self, stream=None, is_stage=False):
+        stream_schema_message = self.stream_schema_message
         if stream is None:
             stream = self.stream_schema_message['stream']
         columns = [
@@ -589,7 +590,7 @@ class DbSync:
             stream = self.stream_schema_message['stream']
         sql = 'DROP TABLE IF EXISTS {}'.format(self.table_name(stream, is_stage))
 
-        self.logger.info(sql)
+        return sql
         
 
     def grant_usage_on_schema(self, schema_name, grantee, to_group=False):
@@ -619,6 +620,7 @@ class DbSync:
 
     def delete_rows(self, stream):
         table = self.table_name(stream, is_stage=False)
+
         query = "DELETE FROM {} WHERE _sdc_deleted_at IS NOT NULL".format(table)
         self.logger.info("Deleting rows from '{}' table... {}".format(table, query))
         self.logger.info("DELETE {}".format(len(self.query(query))))
@@ -647,13 +649,6 @@ class DbSync:
             # Refresh columns cache if required
             if self.table_cache:
                 self.table_cache = self.get_table_columns(filter_schemas=[self.schema_name])
-
-    def get_tables(self, table_schema=None):
-        return self.query("""SELECT LOWER(table_schema) table_schema, LOWER(table_name) table_name
-            FROM information_schema.tables
-            WHERE LOWER(table_schema) = {}""".format(
-                "LOWER(table_schema)" if table_schema is None else "'{}'".format(table_schema.lower())
-        ))
 
     def get_table_columns(self, table_schema=None, table_name=None, filter_schemas=None):
         sql = """SELECT LOWER(c.table_schema) table_schema, LOWER(c.table_name) table_name, c.column_name, c.data_type
@@ -758,24 +753,24 @@ class DbSync:
     def sync_table(self):
         stream_schema_message = self.stream_schema_message
         raw_stream = stream_schema_message['stream']
-        
-        for stream in (raw_stream, raw_stream + '_history'):
-            table_name = self.table_name(stream, is_stage=False, without_schema=True)
-            table_name_with_schema = self.table_name(stream, is_stage=False, without_schema=False)
 
-            if self.table_cache:
-                found_tables = list(filter(lambda x: x['table_schema'] == self.schema_name.lower() and
-                                                    f'"{x["table_name"].upper()}"' == table_name,
-                                        self.table_cache))
-            else:
-                found_tables = [table for table in (self.get_tables(self.schema_name.lower()))
-                                if f'"{table["table_name"].upper()}"' == table_name]
+        for stream in (raw_stream, raw_stream+'_history'):
+            table = self.table_name(stream, is_stage=False, without_schema=True)
 
-            self.logger.info(found_tables)
+            sql = '''
+                SELECT 1 FROM information_schema.tables
+                WHERE LOWER(table_schema) = %s AND LOWER(table_name) = %s
+            '''
+
+            
+            params = (self.schema_name.lower(), table.replace('"', '').lower(),)
+
+            found_tables = self.query(sql, params)
+
+       
             if len(found_tables) == 0:
-                self.logger.info("Table '{}' does not exist. Creating...".format(table_name_with_schema))
-                asdf
+                self.logger.info("Table '{}' does not exist. Creating...".format(table))
                 self.create_table_and_grant_privilege(stream=stream)
             else:
-                self.logger.info("Table '{}' exists".format(self.schema_name))
+                self.logger.info("Table '{}' exists".format(table))
                 self.update_columns(stream=stream)

@@ -85,7 +85,7 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
 
     # CF specific extractions
     extended_record['_sys_add_time'] = record_message.get('time_extracted')
-    extended_record['_is_deleted']     = record_message.get('record', {}).get('_sdc_deleted_at') is not None
+    extended_record['_is_deleted']   = record_message.get('record', {}).get('_sdc_deleted_at') is not None
     extended_record['_sys_end_time'] = record_message.get('record', {}).get('_sdc_deleted_at')
 
     return extended_record
@@ -441,8 +441,8 @@ def flush_records(stream, records_to_load, row_count, db_sync, compression=None,
     for csv_file in csv_files:
         os.remove(csv_file)
     
-    # for s3_key in s3_keys:
-    #    db_sync.delete_from_s3(s3_key)
+    for s3_key in s3_keys:
+        db_sync.delete_from_s3(s3_key)
 
 
 def main():
