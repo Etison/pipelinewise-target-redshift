@@ -484,7 +484,7 @@ class DbSync:
                             WHERE {}
                         """.format(target_table, stage_table, self.primary_key_merge_condition())
                         
-                        self.logger.debug("Running query: {}".format(update_sql))
+                        self.logger.info("Running query: {}".format(update_sql))
                         cur.execute(update_sql)
                         
                         # insert into history where sys_end_time is not null
@@ -497,7 +497,7 @@ class DbSync:
                                    ', '.join([c['name'] for c in columns_with_trans]),
                                    ', '.join(['s.{}'.format(c['name']) for c in columns_with_trans]),
                                    target_table)
-                        self.logger.debug("Running query: {}".format(update_sql))
+                        self.logger.info("Running query: {}".format(update_sql))
                         cur.execute(update_sql)
                         
                         # delete anything that has a _sys_end_time set on it
@@ -516,7 +516,7 @@ class DbSync:
 #                            self.primary_key_merge_condition()
 #                        )
 
-                        self.logger.debug("Running query: {}".format(update_sql))
+                        self.logger.info("Running query: {}".format(update_sql))
                         cur.execute(update_sql)
                         updates = cur.rowcount
 
