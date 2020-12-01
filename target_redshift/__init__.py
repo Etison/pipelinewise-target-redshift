@@ -304,6 +304,7 @@ def flush_streams(
     :return: State dict with flushed positions
     """
     parallelism = config.get("parallelism", DEFAULT_PARALLELISM)
+    LOGGER.info('Parallelism set to :{}'.format(parallelism))
     max_parallelism = config.get("max_parallelism", DEFAULT_MAX_PARALLELISM)
 
     # Parallelism 0 means auto parallelism:
@@ -437,12 +438,12 @@ def flush_records(stream, records_to_load, row_count, db_sync, compression=None,
     # the copy key is the filename prefix without the chunk number
     copy_key = os.path.splitext(s3_keys[0])[0]
 
-    db_sync.load_csv(copy_key, row_count, size_bytes, compression)
+    # db_sync.load_csv(copy_key, row_count, size_bytes, compression)
     for csv_file in csv_files:
         os.remove(csv_file)
     
-    for s3_key in s3_keys:
-        db_sync.delete_from_s3(s3_key)
+    #for s3_key in s3_keys:
+    #    db_sync.delete_from_s3(s3_key)
 
 
 def main():

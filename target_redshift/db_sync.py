@@ -13,7 +13,7 @@ import psycopg2.extras
 import inflection
 from singer import get_logger
 
-DEFAULT_VARCHAR_LENGTH = 10000
+DEFAULT_VARCHAR_LENGTH = 256
 SHORT_VARCHAR_LENGTH = 256
 LONG_VARCHAR_LENGTH = 65535
 
@@ -49,7 +49,7 @@ def column_type(schema_property, with_length=True):
     column_type = 'character varying'
     varchar_length = DEFAULT_VARCHAR_LENGTH
     if schema_property.get('maxLength', 0) > varchar_length:
-        varchar_length = LONG_VARCHAR_LENGTH
+        varchar_length = min(schema_property.get('maxLength', 0), LONG_VARCHAR_LENGTH)
     if 'object' in property_type or 'array' in property_type:
         column_type = 'character varying'
         varchar_length = LONG_VARCHAR_LENGTH
@@ -329,7 +329,7 @@ class DbSync:
         return psycopg2.connect(conn_string)
 
     def query(self, query, params=None):
-        self.logger.info("Running query: {}".format(query))
+        self.logger.debug("Running query: {}".format(query))
         with self.open_connection() as connection:
             with connection.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
                 cur.execute(
@@ -422,7 +422,9 @@ class DbSync:
 
                 # Step 1: Create stage table if not exists
                 cur.execute(self.drop_table_query(is_stage=True))
-                cur.execute(self.create_table_query(is_stage=True))
+                sql = self.create_table_query(is_stage=True)
+                self.logger.info("Running create stage table: {}".format(sql))
+                cur.execute(sql)
 
                 # Step 2: Generate copy credentials - prefer role if provided, otherwise use access and secret keys
                 copy_credentials = """
@@ -465,15 +467,49 @@ class DbSync:
                     copy_options=copy_options,
                     compression_option=compression_option
                 )
-                self.logger.debug("Running query: {}".format(copy_sql))
+                self.logger.info("Running query: {}".format(copy_sql))
                 cur.execute(copy_sql)
 
+                
                 # Step 5/a: Insert or Update if primary key defined
                 #           Do UPDATE first and second INSERT to calculate
                 #           the number of affected rows correctly
                 if len(stream_schema_message['key_properties']) > 0:
                     # Step 5/a/1: Update existing records
                     self.logger.info('DOING UPDATES')
+                    stream_schema_message = self.stream_schema_message
+                    names = primary_column_names(stream_schema_message)
+                    pkeys = ', '.join(names)
+
+                    # LOAD INTO HISTORY FIRST
+                    join_condition = ' AND '.join(['ss.{c} = s.{c}'.format(c=pkey) for pkey in names])
+                    sql = '''
+                    INSERT INTO {history} ({columns})
+                      SELECT {stage_columns} FROM {stage_table} s LEFT JOIN 
+                      (SELECT {pkeys}, max(_sdc_extracted_at) AS "_sdc_extracted_at" FROM {stage_table} s GROUP BY {pkeys}) ss ON {join_condition} AND ss._sdc_extracted_at = s._sdc_extracted_at
+                    WHERE ss._sdc_extracted_at IS NULL
+                    '''.format(pkeys=pkeys, stage_table=stage_table,
+                               history=history_table,
+                               columns=', '.join([c['name'] for c in columns_with_trans]),
+                               stage_columns=', '.join(['s.{}'.format(c['name']) for c in columns_with_trans]),
+                               join_condition=join_condition 
+                               )
+                    self.logger.info("Running query: {}".format(sql))
+                    cur.execute(sql)
+
+                    join_condition = ' AND '.join(['{stage_table}.{c} = ss.{c}'.format(c=pkey, stage_table=stage_table) for pkey in names])
+                    sql = '''
+                    DELETE FROM {stage_table}
+                    USING 
+                      (SELECT {pkeys}, max(_sdc_extracted_at) AS "_sdc_extracted_at" FROM {stage_table} s GROUP BY {pkeys}) ss 
+                    WHERE {join_condition} AND ss._sdc_extracted_at <> {stage_table}._sdc_extracted_at
+                    '''.format(pkeys=pkeys,
+                               stage_table=stage_table,
+                               join_condition=join_condition,
+                    )
+                    self.logger.info("Running query: {}".format(sql))
+                    cur.execute(sql)
+
                     if not self.skip_updates:
                         # set _sys_end_time to _sdc_extracted_at
                         # Open question does this capture... deletes?
@@ -505,17 +541,6 @@ class DbSync:
                         DELETE FROM {} WHERE _sys_end_time IS NOT NULL
                         """.format(target_table)
                                    
-#                        update_sql = """UPDATE {}
-#                            SET {}
-#                            FROM {} s
-#                            WHERE {}
-#                        """.format(
-#                            target_table,
-#                            ', '.join(['{} = s.{}'.format(c['name'], c['name']) for c in columns_with_trans]),
-#                            stage_table,
-#                            self.primary_key_merge_condition()
-#                        )
-
                         self.logger.info("Running query: {}".format(update_sql))
                         cur.execute(update_sql)
                         updates = cur.rowcount
@@ -530,8 +555,12 @@ class DbSync:
                         ', '.join(['s.{}'.format(c['name']) for c in columns_with_trans]),
                         stage_table,
                     )
-                    self.logger.debug("Running query: {}".format(insert_sql))
-                    cur.execute(insert_sql)
+                    self.logger.info("Running query: {}".format(insert_sql))
+                    try:
+                        cur.execute(insert_sql)
+                    except Exception as e:
+                        self.logger.info('FAILED AT RUNNING QUERY: {}'.format(insert_sql))
+                        raise e
                     inserts = cur.rowcount
 
                 # Step 5/b: Insert only if no primary key
@@ -756,6 +785,8 @@ class DbSync:
 
         for stream in (raw_stream, raw_stream+'_history'):
             table = self.table_name(stream, is_stage=False, without_schema=True)
+            self.logger.info('Skipping table for first load MATT {}'.format(table))
+            continue 
 
             sql = '''
                 SELECT 1 FROM information_schema.tables
