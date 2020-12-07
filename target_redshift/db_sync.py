@@ -1,17 +1,16 @@
+from singer import get_logger
+from tenacity import *
+import boto3
 import collections
+import inflection
 import itertools
 import json
 import os
+import psycopg2
+import psycopg2.extras
 import re
 import sys
 import time
-
-import boto3
-import psycopg2
-import psycopg2.extras
-
-import inflection
-from singer import get_logger
 
 DEFAULT_VARCHAR_LENGTH = 256
 SHORT_VARCHAR_LENGTH = 256
@@ -375,6 +374,7 @@ class DbSync:
             ]
         )
 
+    @retry(stop=stop_after_attempt(7))
     def put_to_s3(self, file, stream, count, suffix = ""):
         self.logger.info("Uploading {} rows to S3".format(count))
 
