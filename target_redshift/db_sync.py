@@ -397,7 +397,7 @@ class DbSync:
         self.s3.delete_object(Bucket=bucket, Key=s3_key)
 
     # pylint: disable=too-many-locals
-    def load_csv(self, s3_key, count, size_bytes, compression=False):
+    def load_csv(self, s3_key, count, size_bytes, compression=False, manifest=False):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message['stream']
         stage_table = self.table_name(stream, is_stage=True)
@@ -453,11 +453,15 @@ class DbSync:
                 else:
                     compression_option = ""
 
+                if manifest:
+                    manifest_option = 'MANIFEST'
+
                 # Step 4: Load into the stage table
                 copy_sql = """COPY {table} ({columns}) FROM 's3://{s3_bucket}/{s3_key}'
                     {copy_credentials}
                     {copy_options}
                     DELIMITER ',' REMOVEQUOTES ESCAPE{compression_option}
+                    {manifest}
                 """.format(
                     table=stage_table,
                     columns=', '.join([c['name'] for c in columns_with_trans]),
@@ -465,7 +469,8 @@ class DbSync:
                     s3_key=s3_key,
                     copy_credentials=copy_credentials,
                     copy_options=copy_options,
-                    compression_option=compression_option
+                    compression_option=compression_option,
+                    manifest=manifest_option
                 )
                 self.logger.info("Running query: {}".format(copy_sql))
                 cur.execute(copy_sql)
