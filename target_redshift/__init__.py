@@ -12,6 +12,8 @@ from datetime import datetime
 from decimal import Decimal
 from tempfile import mkstemp
 
+import pandas as pd
+
 from joblib import Parallel, delayed, parallel_backend
 from jsonschema import Draft7Validator, FormatChecker
 from singer import get_logger
@@ -110,8 +112,11 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
     return extended_record
 
 
-def emit_state(state):
+def emit_state(state, config):
     if state is not None:
+        db = DbSync(config)
+        with db.open_connection() as conn:
+            pd.DataFrame(state['bookmarks']).T.to_sql('mothership_state', conn, schema='cfbi', if_exsits='replace', index=False, method='multi')
         line = json.dumps(state)
         LOGGER.info("Emitting state {}".format(line))
         sys.stdout.write("{}\n".format(line))
@@ -137,7 +142,6 @@ def load_table_cache(config):
     table_cache = []
     if not ("disable_table_cache" in config and config["disable_table_cache"]):
         LOGGER.info("Getting catalog objects from table cache...")
-
         db = DbSync(config)
         table_cache = db.get_table_columns(
             filter_schemas=get_schema_names_from_config(config)
@@ -243,7 +247,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
                 )
 
                 # emit last encountered state
-                emit_state(copy.deepcopy(flushed_state))
+                emit_state(copy.deepcopy(flushed_state), config)
 
         elif t == "SCHEMA":
             if "stream" not in o:
@@ -272,7 +276,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
                 )
 
                 # emit latest encountered state
-                emit_state(flushed_state)
+                emit_state(flushed_state, config)
 
             # key_properties key must be available in the SCHEMA message.
             if "key_properties" not in o:
@@ -337,7 +341,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
         )
 
     # emit latest state
-    emit_state(copy.deepcopy(flushed_state))
+    emit_state(copy.deepcopy(flushed_state), config)
 
 
 # pylint: disable=too-many-arguments
@@ -531,13 +535,10 @@ def flush_records(
     # the copy key is the filename prefix without the chunk number
     copy_key = os.path.splitext(s3_keys[0])[0]
 
-    # db_sync.load_csv(copy_key, row_count, size_bytes, compression)
+    db_sync.load_csv(copy_key, row_count, size_bytes, compression)
+
     for csv_file in csv_files:
         os.remove(csv_file)
-
-    # for s3_key in s3_keys:
-    #    db_sync.delete_from_s3(s3_key)
-
 
 def main():
     arg_parser = argparse.ArgumentParser()

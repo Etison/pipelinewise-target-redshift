@@ -11,6 +11,7 @@ import psycopg2.extras
 import re
 import sys
 import time
+from datetime import datetime
 
 DEFAULT_VARCHAR_LENGTH = 256
 SHORT_VARCHAR_LENGTH = 256
@@ -446,8 +447,9 @@ class DbSync:
         # Generating key in S3 bucket
         bucket = self.connection_config["s3_bucket"]
         s3_acl = self.connection_config.get("s3_acl")
-        s3_key_prefix = self.connection_config.get("s3_key_prefix", "")
-        s3_key = "{}pipelinewise_{}{}".format(s3_key_prefix, stream, suffix)
+        now = datetime.now().strftime('%Y-%m-%d')
+
+        s3_key = "singer-archive/{}/{}_{}".format(now, stream, suffix)
 
         self.logger.info(
             "Target S3 bucket: {}, local file: {}, S3 key: {}".format(
@@ -456,14 +458,16 @@ class DbSync:
         )
 
         extra_args = {"ACL": s3_acl} if s3_acl else None
+
         self.s3.upload_file(file, bucket, s3_key, ExtraArgs=extra_args)
 
         return s3_key
 
     def delete_from_s3(self, s3_key):
-        self.logger.info("Deleting {} from S3".format(s3_key))
-        bucket = self.connection_config["s3_bucket"]
-        self.s3.delete_object(Bucket=bucket, Key=s3_key)
+        '''
+        Don't delete things
+        '''
+        return None
 
     # pylint: disable=too-many-locals
     def load_csv(self, s3_key, count, size_bytes, compression=False, manifest=False):
@@ -968,9 +972,6 @@ class DbSync:
 
         for stream in (raw_stream, raw_stream + "_history"):
             table = self.table_name(stream, is_stage=False, without_schema=True)
-            self.logger.info("Skipping table for first load MATT {}".format(table))
-            continue
-
             sql = """
                 SELECT 1 FROM information_schema.tables
                 WHERE LOWER(table_schema) = %s AND LOWER(table_name) = %s
