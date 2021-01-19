@@ -13,6 +13,7 @@ from decimal import Decimal
 from tempfile import mkstemp
 
 import pandas as pd
+from sqlalchemy import create_engine
 
 from joblib import Parallel, delayed, parallel_backend
 from jsonschema import Draft7Validator, FormatChecker
@@ -112,11 +113,13 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
     return extended_record
 
 
-def emit_state(state, config):
+def emit_state(state):
     if state is not None:
-        db = DbSync(config)
-        with db.open_connection() as conn:
-            pd.DataFrame(state['bookmarks']).T.to_sql('mothership_state', conn, schema='cfbi', if_exsits='replace', index=False, method='multi')
+        try:
+            engine = create_engine(os.environ['REDSHIFT_URI'])
+            pd.DataFrame(state['bookmarks']).T.reset_index().to_sql('mothership_state', engine, schema='cfbi', if_exists='replace', index=False, method='multi')
+        except:
+            LOGGER.info("Could not save to cfbi")
         line = json.dumps(state)
         LOGGER.info("Emitting state {}".format(line))
         sys.stdout.write("{}\n".format(line))
@@ -247,7 +250,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
                 )
 
                 # emit last encountered state
-                emit_state(copy.deepcopy(flushed_state), config)
+                emit_state(copy.deepcopy(flushed_state))
 
         elif t == "SCHEMA":
             if "stream" not in o:
@@ -276,7 +279,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
                 )
 
                 # emit latest encountered state
-                emit_state(flushed_state, config)
+                emit_state(flushed_state)
 
             # key_properties key must be available in the SCHEMA message.
             if "key_properties" not in o:
@@ -341,7 +344,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
         )
 
     # emit latest state
-    emit_state(copy.deepcopy(flushed_state), config)
+    emit_state(copy.deepcopy(flushed_state))
 
 
 # pylint: disable=too-many-arguments

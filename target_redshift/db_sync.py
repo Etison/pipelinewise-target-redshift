@@ -449,7 +449,7 @@ class DbSync:
         s3_acl = self.connection_config.get("s3_acl")
         now = datetime.now().strftime('%Y-%m-%d')
 
-        s3_key = "singer-archive/{}/{}_{}".format(now, stream, suffix)
+        s3_key = "singer-archive-4_t/{}/{}_{}".format(now, stream, suffix)
 
         self.logger.info(
             "Target S3 bucket: {}, local file: {}, S3 key: {}".format(
@@ -546,6 +546,8 @@ class DbSync:
 
                 if manifest:
                     manifest_option = "MANIFEST"
+                else:
+                    manifest_option = ""
 
                 # Step 4: Load into the stage table
                 copy_sql = """COPY {table} ({columns}) FROM 's3://{s3_bucket}/{s3_key}'
