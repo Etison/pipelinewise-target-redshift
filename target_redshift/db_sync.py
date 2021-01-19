@@ -533,7 +533,7 @@ class DbSync:
                     """
                     EMPTYASNULL BLANKSASNULL TRIMBLANKS TRUNCATECOLUMNS
                     TIMEFORMAT 'auto'
-                    COMPUPDATE OFF STATUPDATE OFF
+                    COMPUPDATE OFF STATUPDATE ON
                 """,
                 )
 
