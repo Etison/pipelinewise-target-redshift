@@ -78,6 +78,11 @@ def add_metadata_columns_to_schema(schema_message):
         "format": "date-time",
     }
 
+    extended_schema_message["schema"]["properties"]["_sys_updated_at"] = {
+        "type": ["null", "string"],
+        "format": "date-time",
+    }
+
     extended_schema_message["schema"]["properties"]["_sys_end_time"] = {
         "type": ["null", "string"],
         "format": "date-time",
@@ -103,6 +108,9 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
 
     # CF specific extractions
     extended_record["_sys_add_time"] = record_message.get("time_extracted")
+    extended_record["_sys_updated_at"] = record_message.get("record", {}).get(
+        "_sys_updated_at"
+    )
     extended_record["_is_deleted"] = (
         record_message.get("record", {}).get("_sdc_deleted_at") is not None
     )
