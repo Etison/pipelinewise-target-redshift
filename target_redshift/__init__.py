@@ -88,6 +88,18 @@ def add_metadata_columns_to_schema(schema_message):
         "format": "date-time",
     }
 
+    extended_schema_message["schema"]["properties"]["_sys_diffkey"] = {
+        "type": ["null", "string"],
+        "format": "date-time",
+    }
+
+    extended_schema_message["schema"]["properties"]["_sys_hashkey"] = {
+        "type": ["null", "string"],
+        "format": "date-time",
+    }
+
+
+
     extended_schema_message["schema"]["properties"]["_sys_end_time"] = {
         "type": ["null", "string"],
         "format": "date-time",
