@@ -90,14 +90,11 @@ def add_metadata_columns_to_schema(schema_message):
 
     extended_schema_message["schema"]["properties"]["_sys_diffkey"] = {
         "type": ["null", "string"],
-        "format": "date-time",
     }
 
     extended_schema_message["schema"]["properties"]["_sys_hashkey"] = {
         "type": ["null", "string"],
-        "format": "date-time",
     }
-
 
 
     extended_schema_message["schema"]["properties"]["_sys_end_time"] = {
@@ -134,17 +131,13 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
             "_sys_event_type", 1
     )
 
-    # Assume insert=1
     extended_record["_sys_diffkey"] = record_message.get("record", {}).get(
             "_sys_diffkey"
     )
 
-    # Assume insert=1
     extended_record["_sys_hashkey"] = record_message.get("record", {}).get(
             "_sys_hashkey"
     )
-
-
 
     extended_record["_is_deleted"] = (
         record_message.get("record", {}).get("_sdc_deleted_at") is not None
