@@ -144,7 +144,7 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
     )
 
     extended_record["_sys_end_time"] = record_message.get("record", {}).get(
-        "_sdc_batched_at"
+        "_sdc_deleted_at"
     )
 
     return extended_record
