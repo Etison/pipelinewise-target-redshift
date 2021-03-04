@@ -633,7 +633,7 @@ class DbSync:
                         """.format(
                             target_table=target_table,
                             stage_table=stage_table,
-                            join_condition=self.primary_key_merge_condition(),
+                            join_condition=join_condition
                         )
 
                         self.logger.info("Running query: {}".format(update_sql))
