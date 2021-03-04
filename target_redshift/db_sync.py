@@ -625,14 +625,15 @@ class DbSync:
                         # set _sys_end_time to _sdc_extracted_at
                         # Open question does this capture... deletes?
                         update_sql = """
-                            UPDATE {}
+                            UPDATE {target_table}
                             SET _sys_end_time = s._sdc_extracted_at
-                            FROM {} s
-                            WHERE {}
+                            FROM {stage_table}
+                            JOIN {target_table} ss
+                            ON {join_condition}
                         """.format(
-                            target_table,
-                            stage_table,
-                            self.primary_key_merge_condition(),
+                            target_table=target_table,
+                            stage_table=stage_table,
+                            join_condition=self.primary_key_merge_condition(),
                         )
 
                         self.logger.info("Running query: {}".format(update_sql))
