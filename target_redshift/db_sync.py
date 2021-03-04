@@ -626,14 +626,19 @@ class DbSync:
                         # Open question does this capture... deletes?
                         update_sql = """
                             UPDATE {target_table}
-                            SET _sys_end_time = s._sdc_extracted_at
-                            FROM {stage_table}
-                            JOIN {target_table} ss
+                            SET _sys_end_time = stage._sdc_extracted_at
+                            FROM {stage_table} stage
+                            JOIN {target_table} target
                             ON {join_condition}
                         """.format(
                             target_table=target_table,
                             stage_table=stage_table,
-                            join_condition=join_condition
+                            join_condition=" AND ".join(
+                                [
+                                    "stage.{c} = target.{c}".format(c=pkey)
+                                    for pkey in names
+                                ]
+                            )
                         )
 
                         self.logger.info("Running query: {}".format(update_sql))
