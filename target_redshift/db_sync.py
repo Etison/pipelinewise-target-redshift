@@ -553,7 +553,7 @@ class DbSync:
                 copy_sql = """COPY {table} ({columns}) FROM 's3://{s3_bucket}/{s3_key}'
                     {copy_credentials}
                     {copy_options}
-                    DELIMITER ',' REMOVEQUOTES ESCAPE{compression_option}
+                    DELIMITER ',' REMOVEQUOTES ESCAPE{compression_option} ACCEPTINVCHARS
                     {manifest}
                 """.format(
                     table=stage_table,
