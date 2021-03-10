@@ -278,6 +278,8 @@ def persist_lines(config, lines, table_cache=None) -> None:
 #                    filter_streams = [stream]
 
                 # Flush and return a new state dict with new positions only for the flushed streams
+                LOGGER.info("FLUSHING ONE STREAM {}".format(stream))
+
                 flushed_state = flush_streams(
                     records_to_load,
                     row_count,
@@ -308,6 +310,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
             # if same stream has been encountered again, it means the schema might have been altered
             # so previous records need to be flushed
             if row_count.get(stream, 0) > 0:
+                LOGGER.info("FLUSHING SCHEMA CHANGE")
                 flushed_state = flush_streams(
                     records_to_load,
                     row_count,
@@ -378,6 +381,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
     # then flush all buckets.
     if sum(row_count.values()) > 0:
         # flush all streams one last time, delete records if needed, reset counts and then emit current state
+        LOGGER.info("REACHED END OF BINLOG UPDATES")
         flushed_state = flush_streams(
             records_to_load, row_count, stream_to_sync, config, state, flushed_state
         )
@@ -482,6 +486,7 @@ def load_stream_batch(
     # Load into redshift
     try:
         if row_count[stream] > 0:
+            LOGGER.info("LOAD STREAM BATCH {}".format(stream))
             flush_records(
                 stream,
                 records_to_load,
