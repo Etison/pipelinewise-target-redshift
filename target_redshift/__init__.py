@@ -270,10 +270,12 @@ def persist_lines(config, lines, table_cache=None) -> None:
 
             if row_count[stream] >= batch_size_rows:
                 # flush all streams, delete records if needed, reset counts and then emit current state
-                if config.get("flush_all_streams"):
-                    filter_streams = None
-                else:
-                    filter_streams = [stream]
+                filter_streams = [stream]
+#                if config.get("flush_all_streams"):
+#                    filter_streams = None
+#                    LOGGER.error
+#                else:
+#                    filter_streams = [stream]
 
                 # Flush and return a new state dict with new positions only for the flushed streams
                 flushed_state = flush_streams(
