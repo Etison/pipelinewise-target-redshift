@@ -415,7 +415,6 @@ def flush_streams(
     parallelism = config.get("parallelism", DEFAULT_PARALLELISM)
     LOGGER.info("Parallelism set to :{}".format(parallelism))
     max_parallelism = config.get("max_parallelism", DEFAULT_MAX_PARALLELISM)
-    load_csv = config.get('load_csv', True)
 
     # Parallelism 0 means auto parallelism:
     #
@@ -447,6 +446,7 @@ def flush_streams(
                 compression=config.get("compression"),
                 slices=config.get("slices"),
                 temp_dir=config.get("temp_dir"),
+                load_csv=config.get("load_csv", True)
             )
             for stream in streams_to_flush
         )
@@ -484,6 +484,7 @@ def load_stream_batch(
     compression=None,
     slices=None,
     temp_dir=None,
+    load_csv=True
 ):
     # Load into redshift
     try:
@@ -497,6 +498,7 @@ def load_stream_batch(
                 compression,
                 slices,
                 temp_dir,
+                load_csv
             )
 
             # Delete soft-deleted, flagged rows - where _sdc_deleted at is not null
@@ -521,6 +523,7 @@ def ceiling_division(n, d):
     return -(n // -d)
 
 
+# This is all ripe for a refactor
 def flush_records(
     stream,
     records_to_load,
@@ -529,6 +532,7 @@ def flush_records(
     compression=None,
     slices=None,
     temp_dir=None,
+    load_csv=True,
 ):
     slices = slices or 1
     use_gzip = compression == "gzip"
