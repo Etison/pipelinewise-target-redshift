@@ -27,6 +27,7 @@ LOGGER = get_logger("target_redshift")
 DEFAULT_BATCH_SIZE_ROWS = 100000
 DEFAULT_PARALLELISM = 0  # 0 The number of threads used to flush tables
 DEFAULT_MAX_PARALLELISM = 16  # Don't use more than this number of threads by default when flushing streams in parallel
+DEFAULT_LOAD_CSV = True
 
 
 class RecordValidationException(Exception):
@@ -202,6 +203,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
     stream_to_sync = {}
     total_row_count = {}
     batch_size_rows = config.get("batch_size_rows", DEFAULT_BATCH_SIZE_ROWS)
+    load_csv = config.get("load_csv", DEFAULT_LOAD_CSV)
 
     # Loop over lines from stdin
     for line in lines:
@@ -582,7 +584,9 @@ def flush_records(
     # the copy key is the filename prefix without the chunk number
     copy_key = os.path.splitext(s3_keys[0])[0]
 
-    db_sync.load_csv(copy_key, row_count, size_bytes, compression)
+
+    if load_csv:
+        db_sync.load_csv(copy_key, row_count, size_bytes, compression)
 
     for csv_file in csv_files:
         os.remove(csv_file)
@@ -602,6 +606,7 @@ def main():
     table_cache = load_table_cache(config)
 
     singer_messages = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
+
     persist_lines(config, singer_messages, table_cache)
 
     LOGGER.debug("Exiting normally")
