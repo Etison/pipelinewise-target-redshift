@@ -203,7 +203,6 @@ def persist_lines(config, lines, table_cache=None) -> None:
     stream_to_sync = {}
     total_row_count = {}
     batch_size_rows = config.get("batch_size_rows", DEFAULT_BATCH_SIZE_ROWS)
-    load_csv = config.get("load_csv", DEFAULT_LOAD_CSV)
 
     # Loop over lines from stdin
     for line in lines:
@@ -416,6 +415,7 @@ def flush_streams(
     parallelism = config.get("parallelism", DEFAULT_PARALLELISM)
     LOGGER.info("Parallelism set to :{}".format(parallelism))
     max_parallelism = config.get("max_parallelism", DEFAULT_MAX_PARALLELISM)
+    load_csv = config.get('load_csv', True)
 
     # Parallelism 0 means auto parallelism:
     #
@@ -583,7 +583,6 @@ def flush_records(
 
     # the copy key is the filename prefix without the chunk number
     copy_key = os.path.splitext(s3_keys[0])[0]
-
 
     if load_csv:
         db_sync.load_csv(copy_key, row_count, size_bytes, compression)
