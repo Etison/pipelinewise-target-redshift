@@ -449,7 +449,9 @@ class DbSync:
         s3_acl = self.connection_config.get("s3_acl")
         now = datetime.now().strftime('%Y-%m-%d')
 
-        s3_key = "singer-archive-4_t/{}/{}_{}".format(now, stream, suffix)
+        prefix = self.connection_config.get('s3_key_prefix', 'singer-archive-4_t')
+
+        s3_key = f"{prefix}/{now}/{stream}_{suffix}"
 
         self.logger.info(
             "Target S3 bucket: {}, local file: {}, S3 key: {}".format(
