@@ -586,9 +586,10 @@ class DbSync:
                     )
                     sql = """
                     INSERT INTO {history} ({columns})
-                      SELECT {stage_columns} FROM {stage_table} s LEFT JOIN 
-                      (SELECT {pkeys}, max(_sdc_extracted_at) AS "_sdc_extracted_at" FROM {stage_table} s GROUP BY {pkeys}) ss ON {join_condition} AND ss._sdc_extracted_at = s._sdc_extracted_at
-                    WHERE ss._sdc_extracted_at IS NULL
+                      SELECT {stage_columns} FROM {stage_table} s LEFT JOIN
+                      (SELECT {pkeys}, max(_sys_updated_at) AS "_sys_updated_at" FROM {stage_table} s GROUP BY {pkeys})
+                      ss ON {join_condition} AND ss._sys_updated_at = s._sys_updated_at
+                    WHERE ss._sys_updated_at IS NULL
                     """.format(
                         pkeys=pkeys,
                         stage_table=stage_table,
@@ -613,8 +614,8 @@ class DbSync:
                     sql = """
                     DELETE FROM {stage_table}
                     USING 
-                      (SELECT {pkeys}, max(_sdc_extracted_at) AS "_sdc_extracted_at" FROM {stage_table} s GROUP BY {pkeys}) ss 
-                    WHERE {join_condition} AND ss._sdc_extracted_at <> {stage_table}._sdc_extracted_at
+                      (SELECT {pkeys}, max(_sys_updated_at) AS "_sys_updated_at" FROM {stage_table} s GROUP BY {pkeys}) ss 
+                    WHERE {join_condition} AND ss._sys_updated_at <> {stage_table}._sys_updated_at
                     """.format(
                         pkeys=pkeys,
                         stage_table=stage_table,
@@ -624,11 +625,11 @@ class DbSync:
                     cur.execute(sql)
 
                     if not self.skip_updates:
-                        # set _sys_end_time to _sdc_extracted_at
+                        # set _sys_end_time to _sys_updated_at
                         # Open question does this capture... deletes?
                         update_sql = """
                             UPDATE {target_table}
-                            SET _sys_end_time = stage._sdc_extracted_at
+                            SET _sys_end_time = stage._sys_updated_at
                             FROM {stage_table} stage
                             JOIN {target_table} target
                             ON {join_condition}
