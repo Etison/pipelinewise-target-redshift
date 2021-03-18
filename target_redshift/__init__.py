@@ -388,7 +388,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
         )
 
     # emit latest state
-    emit_state(copy.deepcopy(state))
+    emit_state(copy.deepcopy(flushed_state))
 
 
 # pylint: disable=too-many-arguments
