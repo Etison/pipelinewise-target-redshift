@@ -370,6 +370,8 @@ def persist_lines(config, lines, table_cache=None) -> None:
             state = o["value"]
 
             # Initially set flushed state
+            emit_state(copy.deepcopy(state))
+
             if not flushed_state:
                 flushed_state = copy.deepcopy(state)
 
