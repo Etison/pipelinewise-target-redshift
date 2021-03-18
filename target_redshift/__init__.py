@@ -363,10 +363,10 @@ def persist_lines(config, lines, table_cache=None) -> None:
             total_row_count[stream] = 0
 
         elif t == "ACTIVATE_VERSION":
-            LOGGER.info("ACTIVATE_VERSION message")
+            LOGGER.debug("ACTIVATE_VERSION message")
 
         elif t == "STATE":
-            LOGGER.info("Setting state to {}".format(o["value"]))
+            LOGGER.debug("Setting state to {}".format(o["value"]))
             state = o["value"]
 
             # Initially set flushed state
