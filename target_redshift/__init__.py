@@ -205,7 +205,8 @@ def persist_lines(config, lines, table_cache=None) -> None:
     batch_size_rows = config.get("batch_size_rows", DEFAULT_BATCH_SIZE_ROWS)
 
     # Loop over lines from stdin
-    for line in lines:
+
+    for i, line in enumerate(lines):
         try:
             o = json.loads(line)
         except json.decoder.JSONDecodeError:
@@ -269,14 +270,10 @@ def persist_lines(config, lines, table_cache=None) -> None:
             else:
                 records_to_load[stream][primary_key_string] = o["record"]
 
-            if row_count[stream] >= batch_size_rows:
+            # If there have been 10x batch_size_rows of no data still emit the stream
+            if row_count[stream] >= batch_size_rows or i % 10 * batch_size_rows == 0:
                 # flush all streams, delete records if needed, reset counts and then emit current state
                 filter_streams = [stream]
-#                if config.get("flush_all_streams"):
-#                    filter_streams = None
-#                    LOGGER.error
-#                else:
-#                    filter_streams = [stream]
 
                 # Flush and return a new state dict with new positions only for the flushed streams
                 LOGGER.info("FLUSHING ONE STREAM {}".format(stream))
@@ -370,7 +367,8 @@ def persist_lines(config, lines, table_cache=None) -> None:
             state = o["value"]
 
             # Initially set flushed state
-            if not flushed_state:
+            # Or fast forward if nothing happened
+            if not flushed_state or sum(row_count.values()) == 0:
                 flushed_state = copy.deepcopy(state)
 
         else:
@@ -386,6 +384,9 @@ def persist_lines(config, lines, table_cache=None) -> None:
         flushed_state = flush_streams(
             records_to_load, row_count, stream_to_sync, config, state, flushed_state
         )
+    else:
+        LOGGER.info("NO RECORDS TO PERSIST")
+        flushed_state = state
 
     # emit latest state
     emit_state(copy.deepcopy(flushed_state))
