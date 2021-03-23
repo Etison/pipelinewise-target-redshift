@@ -153,11 +153,25 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
 
 def emit_state(state):
     if state is not None:
-#        try:
-#            engine = create_engine(os.environ['REDSHIFT_URI'])
-#            pd.DataFrame(state['bookmarks']).T.reset_index().to_sql('mothership_state', engine, schema='cfbi', if_exists='replace', index=False, method='multi')
-#        except:
-#            LOGGER.info("Could not save to cfbi")
+        try:
+            engine = create_engine(os.environ['REDSHIFT_URI'])
+
+            with engine.connect() as conn:
+                for k, v in state['bookmarks'].items():
+                    upsert = {
+                            'stream': k,
+                            **v
+                    }
+
+                    conn.execute('''
+                    BEGIN;
+                        DELETE FROM cfbi.mothership_state WHERE index=%(stream)s;
+                        INSERT INTO cfbi.mothership_state (index, log_pos, log_file, timestamp, version) VALUES
+                        (%(stream)s, %(log_pos)s, %(log_file)s, %(timestamp)s, %(version)s);
+                    COMMIT;
+                    ''', upsert)
+        except:
+            LOGGER.info("Could not save to cfbi")
         line = json.dumps(state)
         LOGGER.info("Emitting state {}".format(line))
         sys.stdout.write("{}\n".format(line))
@@ -203,9 +217,11 @@ def persist_lines(config, lines, table_cache=None) -> None:
     stream_to_sync = {}
     total_row_count = {}
     batch_size_rows = config.get("batch_size_rows", DEFAULT_BATCH_SIZE_ROWS)
+    last_log_file = ''
 
     # Loop over lines from stdin
-    for line in lines:
+
+    for i, line in enumerate(lines):
         try:
             o = json.loads(line)
         except json.decoder.JSONDecodeError:
@@ -269,14 +285,10 @@ def persist_lines(config, lines, table_cache=None) -> None:
             else:
                 records_to_load[stream][primary_key_string] = o["record"]
 
-            if row_count[stream] >= batch_size_rows:
+            # If there have been 10x batch_size_rows of no data still emit the stream
+            if row_count[stream] >= batch_size_rows or i % 10 * batch_size_rows == 0:
                 # flush all streams, delete records if needed, reset counts and then emit current state
                 filter_streams = [stream]
-#                if config.get("flush_all_streams"):
-#                    filter_streams = None
-#                    LOGGER.error
-#                else:
-#                    filter_streams = [stream]
 
                 # Flush and return a new state dict with new positions only for the flushed streams
                 LOGGER.info("FLUSHING ONE STREAM {}".format(stream))
@@ -366,8 +378,16 @@ def persist_lines(config, lines, table_cache=None) -> None:
             LOGGER.debug("ACTIVATE_VERSION message")
 
         elif t == "STATE":
-            LOGGER.info("Setting state to {}".format(o["value"]))
+            LOGGER.debug("Setting state to {}".format(o["value"]))
+
             state = o["value"]
+
+            if state['log_file'] != last_log_file:
+                if sum(row_count.values()) == 0:
+                    emit_state(state)
+                LOGGER.info("LOG Rotated to {}".format(o['value']['log_file']))
+
+            last_log_file = state['log_file']
 
             # Initially set flushed state
             if not flushed_state:
@@ -386,6 +406,9 @@ def persist_lines(config, lines, table_cache=None) -> None:
         flushed_state = flush_streams(
             records_to_load, row_count, stream_to_sync, config, state, flushed_state
         )
+    else:
+        LOGGER.info("NO RECORDS TO PERSIST")
+        flushed_state = state
 
     # emit latest state
     emit_state(copy.deepcopy(flushed_state))
