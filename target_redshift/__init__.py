@@ -366,7 +366,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
             LOGGER.debug("ACTIVATE_VERSION message")
 
         elif t == "STATE":
-            LOGGER.debug("Setting state to {}".format(o["value"]))
+            LOGGER.info("Setting state to {}".format(o["value"]))
             state = o["value"]
 
             # Initially set flushed state
