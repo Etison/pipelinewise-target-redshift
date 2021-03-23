@@ -382,12 +382,14 @@ def persist_lines(config, lines, table_cache=None) -> None:
 
             state = o["value"]
 
-            if state['log_file'] != last_log_file:
+            log_file = list(state['bookmarks'].values())[0]
+
+            if log_file != last_log_file:
                 if sum(row_count.values()) == 0:
                     emit_state(state)
                 LOGGER.info("LOG Rotated to {}".format(o['value']['log_file']))
 
-            last_log_file = state['log_file']
+            last_log_file = log_file
 
             # Initially set flushed state
             if not flushed_state:
