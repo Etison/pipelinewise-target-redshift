@@ -153,25 +153,22 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
 
 def emit_state(state):
     if state is not None:
-        try:
-            engine = create_engine(os.environ['REDSHIFT_URI'])
+        engine = create_engine(os.environ['REDSHIFT_URI'])
 
-            with engine.connect() as conn:
-                for k, v in state['bookmarks'].items():
-                    upsert = {
-                            'stream': k,
-                            **v
-                    }
+        with engine.connect() as conn:
+            for k, v in state['bookmarks'].items():
+                upsert = {
+                        'stream': k,
+                        **v
+                }
 
-                    conn.execute('''
-                    BEGIN;
-                        DELETE FROM cfbi.mothership_state WHERE index=%(stream)s;
-                        INSERT INTO cfbi.mothership_state (index, log_pos, log_file, timestamp, version) VALUES
-                        (%(stream)s, %(log_pos)s, %(log_file)s, %(timestamp)s, %(version)s);
-                    COMMIT;
-                    ''', upsert)
-        except:
-            LOGGER.info("Could not save to cfbi")
+                conn.execute('''
+                BEGIN;
+                    DELETE FROM cfbi.mothership_state WHERE index=%(stream)s;
+                    INSERT INTO cfbi.mothership_state (index, log_pos, log_file, timestamp, version) VALUES
+                    (%(stream)s, %(log_pos)s, %(log_file)s, %(timestamp)s, %(version)s);
+                COMMIT;
+                ''', upsert)
         line = json.dumps(state)
         LOGGER.info("Emitting state {}".format(line))
         sys.stdout.write("{}\n".format(line))
