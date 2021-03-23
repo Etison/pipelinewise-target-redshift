@@ -153,11 +153,25 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
 
 def emit_state(state):
     if state is not None:
-#        try:
-#            engine = create_engine(os.environ['REDSHIFT_URI'])
-#            pd.DataFrame(state['bookmarks']).T.reset_index().to_sql('mothership_state', engine, schema='cfbi', if_exists='replace', index=False, method='multi')
-#        except:
-#            LOGGER.info("Could not save to cfbi")
+        try:
+            engine = create_engine(os.environ['REDSHIFT_URI'])
+
+            with engine.connect() as conn:
+                for k, v in state['bookmarks'].items():
+                    upsert = {
+                            'stream': k,
+                            **v
+                    }
+
+                    conn.execute('''
+                    BEGIN;
+                        DELETE FROM cfbi.mothership_state WHERE index=%(stream)s;
+                        INSERT INTO cfbi.mothership_state (index, log_pos, log_file, timestamp, version) VALUES
+                        (%(stream)s, %(log_pos)s, %(log_file)s, %(timestamp)s, %(version)s);
+                    COMMIT;
+                    ''', upsert)
+        except:
+            LOGGER.info("Could not save to cfbi")
         line = json.dumps(state)
         LOGGER.info("Emitting state {}".format(line))
         sys.stdout.write("{}\n".format(line))
@@ -203,6 +217,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
     stream_to_sync = {}
     total_row_count = {}
     batch_size_rows = config.get("batch_size_rows", DEFAULT_BATCH_SIZE_ROWS)
+    last_log_file = ''
 
     # Loop over lines from stdin
 
@@ -364,11 +379,17 @@ def persist_lines(config, lines, table_cache=None) -> None:
 
         elif t == "STATE":
             LOGGER.debug("Setting state to {}".format(o["value"]))
+
+            if o['value']['log_file'] != last_log_file:
+                if sum(row_count.values()) == 0:
+                    emit_state(state)
+                LOGGER.info("LOG Rotated to {}".format(o['value']['log_file']))
+
+            last_log_file = o['value']['log_file']
             state = o["value"]
 
             # Initially set flushed state
-            # Or fast forward if nothing happened
-            if not flushed_state or sum(row_count.values()) == 0:
+            if not flushed_state:
                 flushed_state = copy.deepcopy(state)
 
         else:
