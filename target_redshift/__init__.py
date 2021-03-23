@@ -283,7 +283,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
                 records_to_load[stream][primary_key_string] = o["record"]
 
             # If there have been 10x batch_size_rows of no data still emit the stream
-            if row_count[stream] >= batch_size_rows or i % 10 * batch_size_rows == 0:
+            if row_count[stream] >= batch_size_rows or i % (10 * batch_size_rows) == 0:
                 # flush all streams, delete records if needed, reset counts and then emit current state
                 filter_streams = [stream]
 
