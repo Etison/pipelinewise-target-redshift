@@ -214,11 +214,13 @@ def persist_lines(config, lines, table_cache=None) -> None:
     stream_to_sync = {}
     total_row_count = {}
     batch_size_rows = config.get("batch_size_rows", DEFAULT_BATCH_SIZE_ROWS)
+
     last_log_file = ''
+    log_files = 0
 
     # Loop over lines from stdin
 
-    for i, line in enumerate(lines):
+    for line in lines:
         try:
             o = json.loads(line)
         except json.decoder.JSONDecodeError:
@@ -282,8 +284,8 @@ def persist_lines(config, lines, table_cache=None) -> None:
             else:
                 records_to_load[stream][primary_key_string] = o["record"]
 
-            # If there have been 10x batch_size_rows of no data still emit the stream
-            if row_count[stream] >= batch_size_rows or i % (10 * batch_size_rows) == 0:
+            # Either there have been 10 log files or many records to stream
+            if row_count[stream] >= batch_size_rows or log_files >= 10:
                 # flush all streams, delete records if needed, reset counts and then emit current state
                 filter_streams = [stream]
 
@@ -300,6 +302,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
                     filter_streams=filter_streams,
                 )
 
+                log_files = 0
                 # emit last encountered state
                 emit_state(copy.deepcopy(flushed_state))
 
@@ -382,6 +385,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
             log_file = list(state['bookmarks'].values())[0]['log_file']
 
             if log_file != last_log_file:
+                log_files += 1
                 if sum(row_count.values()) == 0:
                     emit_state(state)
                 LOGGER.info("LOG Rotated to {}".format(log_file))
