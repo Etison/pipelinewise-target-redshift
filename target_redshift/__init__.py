@@ -387,7 +387,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
             if log_file != last_log_file:
                 if sum(row_count.values()) == 0:
                     emit_state(state)
-                LOGGER.info("LOG Rotated to {}".format(o['value']['log_file']))
+                LOGGER.info("LOG Rotated to {}".format(log_file))
 
             last_log_file = log_file
 
