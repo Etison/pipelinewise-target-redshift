@@ -379,7 +379,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
 
             state = o["value"]
 
-            log_file = list(state['bookmarks'].values())[0]
+            log_file = list(state['bookmarks'].values())[0]['log_file']
 
             if log_file != last_log_file:
                 if sum(row_count.values()) == 0:
