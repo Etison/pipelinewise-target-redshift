@@ -380,13 +380,14 @@ def persist_lines(config, lines, table_cache=None) -> None:
         elif t == "STATE":
             LOGGER.debug("Setting state to {}".format(o["value"]))
 
-            if o['value']['log_file'] != last_log_file:
+            state = o["value"]
+
+            if state['log_file'] != last_log_file:
                 if sum(row_count.values()) == 0:
                     emit_state(state)
                 LOGGER.info("LOG Rotated to {}".format(o['value']['log_file']))
 
-            last_log_file = o['value']['log_file']
-            state = o["value"]
+            last_log_file = state['log_file']
 
             # Initially set flushed state
             if not flushed_state:
