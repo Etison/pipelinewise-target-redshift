@@ -285,7 +285,7 @@ def persist_lines(config, lines, table_cache=None) -> None:
                 records_to_load[stream][primary_key_string] = o["record"]
 
             # Either there have been 10 log files or many records to stream
-            if row_count[stream] >= batch_size_rows or log_files >= 10:
+            if row_count[stream] >= batch_size_rows or log_files >= 30:
                 # flush all streams, delete records if needed, reset counts and then emit current state
                 filter_streams = [stream]
 
@@ -386,8 +386,6 @@ def persist_lines(config, lines, table_cache=None) -> None:
 
             if log_file != last_log_file:
                 log_files += 1
-                if sum(row_count.values()) == 0:
-                    emit_state(state)
                 LOGGER.info("LOG Rotated to {}".format(log_file))
 
             last_log_file = log_file
