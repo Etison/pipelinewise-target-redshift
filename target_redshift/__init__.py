@@ -386,6 +386,9 @@ def persist_lines(config, lines, table_cache=None) -> None:
 
             if log_file != last_log_file:
                 log_files += 1
+                if sum(row_count.values()) == 0 and log_files >= 30:
+                    log_files = 0
+                    emit_state(state)
                 LOGGER.info("LOG Rotated to {}".format(log_file))
 
             last_log_file = log_file
