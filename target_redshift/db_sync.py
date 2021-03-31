@@ -486,10 +486,21 @@ class DbSync:
         )
 
         # Get list if columns with types
-        columns_with_trans = [
-            {"name": safe_column_name(name), "trans": column_trans(schema)}
-            for (name, schema) in self.flatten_schema.items()
-        ]
+
+        full_columns = []
+        columns_with_trans = []
+
+        ignore_columns = ("_sdc_primary_key", "_sdc_received_at", "_sdc_sequence", "_sdc_table_version")
+        for (name, schema) in self.flatten_schema.items():
+            row = {"name": safe_column_name(name), "trans": column_trans(schema)}
+
+            if name not in ignore_columns:
+                columns_with_trans.append(row)
+
+            full_columns.append(row)
+
+
+        metrics = {}
 
         with self.open_connection() as connection:
             with connection.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -559,7 +570,7 @@ class DbSync:
                     {manifest}
                 """.format(
                     table=stage_table,
-                    columns=", ".join([c["name"] for c in columns_with_trans]),
+                    columns=", ".join([c["name"] for c in full_columns]),
                     s3_bucket=self.connection_config["s3_bucket"],
                     s3_key=s3_key,
                     copy_credentials=copy_credentials,
@@ -717,6 +728,12 @@ class DbSync:
                 # Step 6: Drop stage table
                 cur.execute(self.drop_table_query(is_stage=True))
 
+                metrics[self.table_name(stream, False)] = {
+                    "inserts": inserts,
+                    "updates": updates,
+                    "size_bytes": size_bytes,
+                }
+
                 self.logger.info(
                     "Loading into {}: {}".format(
                         self.table_name(stream, False),
@@ -729,6 +746,7 @@ class DbSync:
                         ),
                     )
                 )
+        return metrics
 
     def primary_key_merge_condition(self):
         stream_schema_message = self.stream_schema_message
