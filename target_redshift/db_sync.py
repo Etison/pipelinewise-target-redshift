@@ -598,8 +598,8 @@ class DbSync:
                     sql = """
                     INSERT INTO {history} ({columns})
                       SELECT {stage_columns} FROM {stage_table} s LEFT JOIN
-                      (SELECT {pkeys}, max(_sys_updated_at) AS "_sys_updated_at" FROM {stage_table} s GROUP BY {pkeys})
-                      ss ON {join_condition} AND ss._sys_updated_at = s._sys_updated_at
+                      (SELECT {pkeys}, max(_sys_updated_at) AS "_sys_updated_at" FROM {stage_table} s GROUP BY {pkeys}) ss 
+                        ON {join_condition} AND ss._sys_updated_at = s._sys_updated_at
                     WHERE ss._sys_updated_at IS NULL
                     """.format(
                         pkeys=pkeys,
@@ -624,7 +624,7 @@ class DbSync:
                     )
                     sql = """
                     DELETE FROM {stage_table}
-                    USING 
+                    USING
                       (SELECT {pkeys}, max(_sys_updated_at) AS "_sys_updated_at" FROM {stage_table} s GROUP BY {pkeys}) ss 
                     WHERE {join_condition} AND ss._sys_updated_at <> {stage_table}._sys_updated_at
                     """.format(
@@ -644,6 +644,7 @@ class DbSync:
                             FROM {stage_table} stage
                             JOIN {target_table} target
                             ON {join_condition}
+                            AND stage._sys_updated_at > target._sys_updated_at
                         """.format(
                             target_table=target_table,
                             stage_table=stage_table,
@@ -690,6 +691,8 @@ class DbSync:
                     insert_sql = """INSERT INTO {} ({})
                         SELECT {}
                         FROM {} s
+                        LEFT JOIN {} target ON {}
+                        WHERE parent._sys_updated_at IS NULL
                     """.format(
                         target_table,
                         ", ".join([c["name"] for c in columns_with_trans]),
@@ -697,6 +700,13 @@ class DbSync:
                             ["s.{}".format(c["name"]) for c in columns_with_trans]
                         ),
                         stage_table,
+                        target_table,
+                        ' AND '.join(
+                            [
+                                "s.{c} = target.{c}".format(c=pkey)
+                                for pkey in names
+                            ]
+                        )
                     )
                     self.logger.info("Running query: {}".format(insert_sql))
                     try:
