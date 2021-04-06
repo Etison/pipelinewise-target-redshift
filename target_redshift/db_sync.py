@@ -692,7 +692,7 @@ class DbSync:
                         SELECT {}
                         FROM {} s
                         LEFT JOIN {} target ON {}
-                        WHERE parent._sys_updated_at IS NULL
+                        WHERE target._sys_updated_at IS NULL
                     """.format(
                         target_table,
                         ", ".join([c["name"] for c in columns_with_trans]),
