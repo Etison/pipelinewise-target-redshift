@@ -153,22 +153,7 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
 
 def emit_state(state):
     if state is not None:
-        engine = create_engine(os.environ['REDSHIFT_URI'])
 
-        with engine.connect() as conn:
-            for k, v in state['bookmarks'].items():
-                upsert = {
-                        'stream': k,
-                        **v
-                }
-
-                conn.execute('''
-                BEGIN;
-                    DELETE FROM cfbi.mothership_state WHERE index=%(stream)s;
-                    INSERT INTO cfbi.mothership_state (index, log_pos, log_file, timestamp, version) VALUES
-                    (%(stream)s, %(log_pos)s, %(log_file)s, %(timestamp)s, %(version)s);
-                COMMIT;
-                ''', upsert)
         line = json.dumps(state)
         LOGGER.info("Emitting state {}".format(line))
         sys.stdout.write("{}\n".format(line))
@@ -382,16 +367,18 @@ def persist_lines(config, lines, table_cache=None) -> None:
 
             state = o["value"]
 
-            log_file = list(state['bookmarks'].values())[0]['log_file']
+            if 'bookmarks' in state:
 
-            if log_file != last_log_file:
-                log_files += 1
-                if sum(row_count.values()) == 0 and log_files >= 30:
-                    log_files = 0
-                    emit_state(state)
-                LOGGER.info("LOG Rotated to {}".format(log_file))
+                log_file = list(state['bookmarks'].values())[0].get('log_file')
 
-            last_log_file = log_file
+                if log_file != last_log_file:
+                    log_files += 1
+                    if sum(row_count.values()) == 0 and log_files >= 30:
+                        log_files = 0
+                        emit_state(state)
+                    LOGGER.info("LOG Rotated to {}".format(log_file))
+
+                last_log_file = log_file
 
             # Initially set flushed state
             if not flushed_state:
