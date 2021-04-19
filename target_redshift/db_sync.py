@@ -591,16 +591,24 @@ class DbSync:
                     names = primary_column_names(stream_schema_message)
                     pkeys = ", ".join(names)
 
-                    # LOAD INTO HISTORY FIRST
                     join_condition = " AND ".join(
                         ["ss.{c} = s.{c}".format(c=pkey) for pkey in names]
                     )
+
                     sql = """
                     INSERT INTO {history} ({columns})
-                      SELECT {stage_columns} FROM {stage_table} s LEFT JOIN
-                      (SELECT {pkeys}, max(_sys_updated_at) AS "_sys_updated_at" FROM {stage_table} s GROUP BY {pkeys}) ss 
-                        ON {join_condition} AND ss._sys_updated_at = s._sys_updated_at
-                    WHERE ss._sys_updated_at IS NULL
+                      SELECT {stage_columns}
+                      FROM {stage_table} s
+                      LEFT JOIN
+                      (
+                        SELECT
+                            {pkeys}
+                            , _sys_transaction_lineno AS "_sys_transaction_lineno"
+                            , MAX(_sys_log_position) AS "_sys_log_position"
+                        FROM {stage_table} GROUP BY {pkeys}
+                      ) ss ON
+                        {join_condition} AND ss._sys_log_position = s._sys_log_position
+                      WHERE ss._sys_log_position IS NULL OR ss._sys_transaction_lineno > s._sys_transaction_lineno
                     """.format(
                         pkeys=pkeys,
                         stage_table=stage_table,
@@ -625,8 +633,15 @@ class DbSync:
                     sql = """
                     DELETE FROM {stage_table}
                     USING
-                      (SELECT {pkeys}, max(_sys_updated_at) AS "_sys_updated_at" FROM {stage_table} s GROUP BY {pkeys}) ss 
-                    WHERE {join_condition} AND ss._sys_updated_at <> {stage_table}._sys_updated_at
+                      (
+                        SELECT
+                            {pkeys}
+                            , _sys_transaction_lineno AS "_sys_transaction_lineno"
+                            , MAX(_sys_log_position) AS "_sys_log_position"
+                        FROM {stage_table} GROUP BY {pkeys}
+                      )
+                    WHERE {join_condition} AND ss._sys_log_position <> {stage_table}._sys_log_position OR
+                          ss._sys_transaction_lineno < {stage_table}._sys_transaction_lineno
                     """.format(
                         pkeys=pkeys,
                         stage_table=stage_table,
@@ -644,7 +659,8 @@ class DbSync:
                             FROM {stage_table} stage
                             JOIN {target_table} target
                             ON {join_condition}
-                            AND stage._sys_updated_at > target._sys_updated_at
+                            AND (stage._sys_log_poisition > target._sys_log_position AND
+                                 stage._sys_transaction_lineno >= target._sys_transaction_lineno)
                         """.format(
                             target_table=target_table,
                             stage_table=stage_table,
@@ -692,7 +708,7 @@ class DbSync:
                         SELECT {}
                         FROM {} s
                         LEFT JOIN {} target ON {}
-                        WHERE target._sys_updated_at IS NULL
+                        WHERE {}
                     """.format(
                         target_table,
                         ", ".join([c["name"] for c in columns_with_trans]),
@@ -704,6 +720,12 @@ class DbSync:
                         ' AND '.join(
                             [
                                 "s.{c} = target.{c}".format(c=pkey)
+                                for pkey in names
+                            ]
+                        ),
+                        ' AND '.join(
+                            [
+                                "target.{pkey} IS NULL".format(pkey=pkey)
                                 for pkey in names
                             ]
                         )
