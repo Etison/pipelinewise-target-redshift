@@ -591,24 +591,36 @@ class DbSync:
                     names = primary_column_names(stream_schema_message)
                     pkeys = ", ".join(names)
 
+                    join_condition = ' AND '.join([
+                        f"{stage_table}.{c} = row_numbers.{c}"
+                        for c in set(names) + set(['_sys_log_file', '_sys_log_position', '_sys_transaction_lineno'])
+                    ])
+
+                    sql = f"""
+                    WITH row_numbers AS (
+                        SELECT
+                            {pkeys}, _sys_log_file, _sys_log_position, _sys_transaction_lineno,
+                            ROW_NUMBER() OVER (PARTITION BY {pkeys} ORDER BY _sys_log_file ASC, _sys_log_position ASC,
+                            _sys_transaction_lineno ASC) AS "_sdc_sequence"
+                    UPDATE
+                        {stage_table}
+                    SET {stage_table}."_sdc_sequence" = row_numbers._sdc_sequence
+                    WHERE {join_condition}
+                    """
+
+                    self.logger.info("Running query: {}".format(sql))
+                    cur.execute(sql)
+
                     join_condition = " AND ".join(
                         ["ss.{c} = s.{c}".format(c=pkey) for pkey in names]
                     )
 
                     sql = """
                     INSERT INTO {history} ({columns})
-                      SELECT {stage_columns}
-                      FROM {stage_table} s
-                      LEFT JOIN
-                      (
-                        SELECT
-                            {pkeys}
-                            , _sys_transaction_lineno AS "_sys_transaction_lineno"
-                            , MAX(_sys_log_position) AS "_sys_log_position"
-                        FROM {stage_table} GROUP BY {pkeys}
-                      ) ss ON
-                        {join_condition} AND ss._sys_log_position = s._sys_log_position
-                      WHERE ss._sys_log_position IS NULL OR ss._sys_transaction_lineno > s._sys_transaction_lineno
+                      SELECT {stage_columns} FROM {stage_table} s LEFT JOIN
+                      (SELECT {pkeys}, max(_sdc_sequence) AS "_sdc_sequence" FROM {stage_table} s GROUP BY {pkeys})
+                      ss ON {join_condition} AND ss._sdc_sequence = s._sdc_sequence
+                    WHERE ss._sdc_sequence IS NULL
                     """.format(
                         pkeys=pkeys,
                         stage_table=stage_table,
@@ -632,16 +644,9 @@ class DbSync:
                     )
                     sql = """
                     DELETE FROM {stage_table}
-                    USING
-                      (
-                        SELECT
-                            {pkeys}
-                            , _sys_transaction_lineno AS "_sys_transaction_lineno"
-                            , MAX(_sys_log_position) AS "_sys_log_position"
-                        FROM {stage_table} GROUP BY {pkeys}
-                      )
-                    WHERE {join_condition} AND ss._sys_log_position <> {stage_table}._sys_log_position OR
-                          ss._sys_transaction_lineno < {stage_table}._sys_transaction_lineno
+                    USING 
+                      (SELECT {pkeys}, max(_sdc_sequence) AS "_sdc_sequence" FROM {stage_table} s GROUP BY {pkeys}) ss 
+                    WHERE {join_condition} AND ss._sdc_sequence <> {stage_table}._sdc_sequence
                     """.format(
                         pkeys=pkeys,
                         stage_table=stage_table,
@@ -659,8 +664,6 @@ class DbSync:
                             FROM {stage_table} stage
                             JOIN {target_table} target
                             ON {join_condition}
-                            AND (stage._sys_log_poisition > target._sys_log_position AND
-                                 stage._sys_transaction_lineno >= target._sys_transaction_lineno)
                         """.format(
                             target_table=target_table,
                             stage_table=stage_table,
