@@ -591,21 +591,28 @@ class DbSync:
                     names = primary_column_names(stream_schema_message)
                     pkeys = ", ".join(names)
 
-                    join_condition = ' AND '.join([
-                        f"{stage_table}.{c} = row_numbers.{c}"
-                        for c in set(names) + set(['_sys_log_file', '_sys_log_position', '_sys_transaction_lineno'])
-                    ])
+                    
+                    cols = ", ".join([c["name"]
+                                      for c in full_columns if c['name'] != '_sdc_sequence'])
+
 
                     sql = f"""
-                    WITH row_numbers AS (
-                        SELECT
-                            {pkeys}, _sys_log_file, _sys_log_position, _sys_transaction_lineno,
-                            ROW_NUMBER() OVER (PARTITION BY {pkeys} ORDER BY _sys_log_file ASC, _sys_log_position ASC,
-                            _sys_transaction_lineno ASC) AS "_sdc_sequence"
-                    UPDATE
-                        {stage_table}
-                    SET {stage_table}."_sdc_sequence" = row_numbers._sdc_sequence
-                    WHERE {join_condition}
+                        DROP TABLE IF EXISTS sequenced_{stage_table};
+
+                        CREATE TABLE sequenced_{stage_table} AS
+                        (
+                            SELECT
+                                {cols}
+                                , ROW_NUMBER() OVER (PARTITION BY {pkeys} 
+                                    ORDER BY _sys_log_file ASC, _sys_log_position ASC,
+                                             _sys_transaction_lineno ASC
+                                ) AS "_sdc_sequence"
+                            FROM {stage_table}
+                        );
+
+                        DROP TABLE {stage_table};
+
+                        ALTER TABLE sequenced_{stage_table} RENAME TO {stage_table};
                     """
 
                     self.logger.info("Running query: {}".format(sql))
