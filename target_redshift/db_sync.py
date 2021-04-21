@@ -475,6 +475,7 @@ class DbSync:
     def load_csv(self, s3_key, count, size_bytes, compression=False, manifest=False):
         stream_schema_message = self.stream_schema_message
         stream = stream_schema_message["stream"]
+        sequenced_table = self.table_name(stream + "_sequenced", is_stage=False)
         stage_table = self.table_name(stream, is_stage=True)
         target_table = self.table_name(stream, is_stage=False)
         history_table = self.table_name(stream + "_history", is_stage=False)
@@ -591,28 +592,31 @@ class DbSync:
                     names = primary_column_names(stream_schema_message)
                     pkeys = ", ".join(names)
 
-                    
-                    cols = ", ".join([c["name"]
-                                      for c in full_columns if c['name'] != '_sdc_sequence'])
-
+                    schemaless_stage_table = stage_table.split(".")[1]
+                    cols = [
+                            c["name"]
+                            for c in full_columns
+                            if c['name'] != '"_SDC_SEQUENCE"'
+                    ]
+                    cols = ', '.join(sorted(cols))
 
                     sql = f"""
-                        DROP TABLE IF EXISTS sequenced_{stage_table};
+                        DROP TABLE IF EXISTS {sequenced_table};
 
-                        CREATE TABLE sequenced_{stage_table} AS
+                        CREATE TABLE {sequenced_table} AS
                         (
                             SELECT
                                 {cols}
                                 , ROW_NUMBER() OVER (PARTITION BY {pkeys} 
                                     ORDER BY _sys_log_file ASC, _sys_log_position ASC,
                                              _sys_transaction_lineno ASC
-                                ) AS "_sdc_sequence"
+                                ) AS "_SDC_SEQUENCE"
                             FROM {stage_table}
                         );
 
                         DROP TABLE {stage_table};
 
-                        ALTER TABLE sequenced_{stage_table} RENAME TO {stage_table};
+                        ALTER TABLE {sequenced_table} RENAME TO {schemaless_stage_table};
                     """
 
                     self.logger.info("Running query: {}".format(sql))
@@ -663,8 +667,6 @@ class DbSync:
                     cur.execute(sql)
 
                     if not self.skip_updates:
-                        # set _sys_end_time to _sys_updated_at
-                        # Open question does this capture... deletes?
                         update_sql = """
                             UPDATE {target_table}
                             SET _sys_end_time = stage._sys_updated_at
@@ -824,8 +826,26 @@ class DbSync:
             else []
         )
 
-        return "CREATE TABLE IF NOT EXISTS {} ({})".format(
-            self.table_name(stream, is_stage), ", ".join(columns + primary_key)
+        sort_key = (
+                "SORTKEY ({}, _sys_log_file, _sys_log_position, _sys_transaction_lineno)".format(
+                    ",".join(primary_column_names(stream_schema_message))
+                )
+                if len(stream_schema_message["key_properties"])
+                else "SORTKEY (_sys_log_file, _sys_log_position, _sys_transaction_lineno)"
+        )
+        dist_key = (
+                "DISTKEY({})".format(
+                    ",".join(primary_column_names(stream_schema_message))
+                )
+                if len(stream_schema_message["key_properties"])
+                else ""
+        )
+
+        return "CREATE TABLE IF NOT EXISTS {} ({}) {} {}".format(
+            self.table_name(stream, is_stage),
+            ", ".join(columns + primary_key),
+            dist_key,
+            sort_key
         )
 
     def drop_table_query(self, stream=None, is_stage=False):
