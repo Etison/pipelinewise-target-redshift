@@ -820,7 +820,7 @@ class DbSync:
         )
         dist_key = (
                 "DISTKEY({})".format(
-                    ",".join(primary_column_names(stream_schema_message))
+                    ",".join(primary_column_names(stream_schema_message)[0])
                 )
                 if len(stream_schema_message["key_properties"])
                 else ""
