@@ -725,7 +725,7 @@ class DbSync:
                         ", ".join(
                             ["s.{}".format(c["name"]) for c in columns_with_trans]
                         ),
-                        stage_table
+                        stage_table,
                     )
                     self.logger.info("Running query: {}".format(insert_sql))
                     try:
