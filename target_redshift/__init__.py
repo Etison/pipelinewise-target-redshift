@@ -79,6 +79,19 @@ def add_metadata_columns_to_schema(schema_message):
             "type": "integer"
     }
 
+    extended_schema_message["schema"]["properties"]["_sys_log_position"] = {
+            "type": "integer"
+    }
+
+    extended_schema_message["schema"]["properties"]["_sys_log_file"] = {
+            "type": "integer"
+    }
+
+
+    extended_schema_message["schema"]["properties"]["_sys_transaction_lineno"] = {
+            "type": "integer"
+    }
+
     extended_schema_message["schema"]["properties"]["_sys_add_time"] = {
         "type": ["null", "string"],
         "format": "date-time",
@@ -130,6 +143,18 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
     # Assume insert=1
     extended_record["_sys_event_type"] = record_message.get("record", {}).get(
             "_sys_event_type", 1
+    )
+
+    extended_record["_sys_transaction_lineno"] = record_message.get("record", {}).get(
+            "_sys_transaction_lineno", -1
+    )
+
+    extended_record["_sys_log_position"] = record_message.get("record", {}).get(
+            "_sys_log_position", -1
+    )
+
+    extended_record["_sys_log_file"] = record_message.get("record", {}).get(
+            "_sys_log_file", -1
     )
 
     extended_record["_sys_diffkey"] = record_message.get("record", {}).get(
