@@ -719,28 +719,13 @@ class DbSync:
                     insert_sql = """INSERT INTO {} ({})
                         SELECT {}
                         FROM {} s
-                        LEFT JOIN {} target ON {}
-                        WHERE {}
                     """.format(
                         target_table,
                         ", ".join([c["name"] for c in columns_with_trans]),
                         ", ".join(
                             ["s.{}".format(c["name"]) for c in columns_with_trans]
                         ),
-                        stage_table,
-                        target_table,
-                        ' AND '.join(
-                            [
-                                "s.{c} = target.{c}".format(c=pkey)
-                                for pkey in names
-                            ]
-                        ),
-                        ' AND '.join(
-                            [
-                                "target.{pkey} IS NULL".format(pkey=pkey)
-                                for pkey in names
-                            ]
-                        )
+                        stage_table
                     )
                     self.logger.info("Running query: {}".format(insert_sql))
                     try:
