@@ -92,6 +92,10 @@ def add_metadata_columns_to_schema(schema_message):
             "type": "integer"
     }
 
+    extended_schema_message["schema"]["properties"]["_sdc_sequence"] = {
+            "type": ["null", "integer"]
+    }
+
     extended_schema_message["schema"]["properties"]["_sys_add_time"] = {
         "type": ["null", "string"],
         "format": "date-time",
@@ -138,6 +142,10 @@ def add_metadata_values_to_record(record_message, stream_to_sync):
     extended_record["_sys_add_time"] = record_message.get("time_extracted")
     extended_record["_sys_updated_at"] = record_message.get("record", {}).get(
         "_sys_updated_at"
+    )
+
+    extended_record["_sdc_sequence"] = record_message.get("record", {}).get(
+            "_sdc_sequence", -1
     )
 
     # Assume insert=1
