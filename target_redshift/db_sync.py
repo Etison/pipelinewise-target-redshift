@@ -491,7 +491,7 @@ class DbSync:
         full_columns = []
         columns_with_trans = []
 
-        ignore_columns = ("_sdc_primary_key", "_sdc_received_at", "_sdc_sequence", "_sdc_table_version")
+        ignore_columns = ("_sdc_primary_key", "_sdc_received_at", "_sdc_table_version")
         for (name, schema) in self.flatten_schema.items():
             row = {"name": safe_column_name(name), "trans": column_trans(schema)}
 
