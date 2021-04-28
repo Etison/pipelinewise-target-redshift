@@ -631,7 +631,7 @@ class DbSync:
                       SELECT {stage_columns} FROM {stage_table} s LEFT JOIN
                       (SELECT {pkeys}, max(_sdc_sequence) AS "_sdc_sequence" FROM {stage_table} s GROUP BY {pkeys})
                       ss ON {join_condition} AND ss._sdc_sequence = s._sdc_sequence
-                    WHERE ss._sdc_sequence IS NULL OR s._sdc_deleted_at IS NOT NULL
+                    WHERE ss._sdc_sequence IS NULL
                     """.format(
                         pkeys=pkeys,
                         stage_table=stage_table,
@@ -657,10 +657,7 @@ class DbSync:
                     DELETE FROM {stage_table}
                     USING 
                       (SELECT {pkeys}, max(_sdc_sequence) AS "_sdc_sequence" FROM {stage_table} s GROUP BY {pkeys}) ss 
-                    WHERE {join_condition} AND (
-                        ss._sdc_sequence <> {stage_table}._sdc_sequence OR
-                        {stage_table}._sdc_deleted_at IS NOT NULL
-                    )
+                    WHERE {join_condition} AND ss._sdc_sequence <> {stage_table}._sdc_sequence
                     """.format(
                         pkeys=pkeys,
                         stage_table=stage_table,
@@ -672,7 +669,7 @@ class DbSync:
                     if not self.skip_updates:
                         update_sql = """
                             UPDATE {target_table}
-                            SET _sys_end_time = stage._sys_updated_at
+                            SET _sys_end_time = COALESCE(stage._sys_updated_at, stage._sdc_deleted_at)
                             FROM {stage_table} stage
                             JOIN {target_table} target
                             ON {join_condition}
@@ -695,7 +692,7 @@ class DbSync:
                         INSERT INTO {} ({})
                         SELECT {}
                         FROM {} s
-                        WHERE _sys_end_time IS NOT NULL
+                        WHERE _sdc_deleted_at IS NOT NULL
                         """.format(
                             history_table,
                             ", ".join([c["name"] for c in columns_with_trans]),
