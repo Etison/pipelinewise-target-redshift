@@ -631,7 +631,7 @@ class DbSync:
                       SELECT {stage_columns} FROM {stage_table} s LEFT JOIN
                       (SELECT {pkeys}, max(_sdc_sequence) AS "_sdc_sequence" FROM {stage_table} s GROUP BY {pkeys})
                       ss ON {join_condition} AND ss._sdc_sequence = s._sdc_sequence
-                    WHERE ss._sdc_sequence IS NULL
+                    WHERE ss._sdc_sequence IS NULL OR s._sdc_deleted_at IS NOT NULL
                     """.format(
                         pkeys=pkeys,
                         stage_table=stage_table,
@@ -657,7 +657,10 @@ class DbSync:
                     DELETE FROM {stage_table}
                     USING 
                       (SELECT {pkeys}, max(_sdc_sequence) AS "_sdc_sequence" FROM {stage_table} s GROUP BY {pkeys}) ss 
-                    WHERE {join_condition} AND ss._sdc_sequence <> {stage_table}._sdc_sequence
+                    WHERE {join_condition} AND (
+                        ss._sdc_sequence <> {stage_table}._sdc_sequence OR
+                        {stage_table}._sdc_deleted_at IS NOT NULL
+                    )
                     """.format(
                         pkeys=pkeys,
                         stage_table=stage_table,
