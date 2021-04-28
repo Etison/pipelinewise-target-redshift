@@ -226,22 +226,22 @@ def stream_name_to_dict(stream_name, separator="-"):
 class DbSync:
     def __init__(self, connection_config, stream_schema_message=None, table_cache=None):
         """
-            connection_config:      Redshift connection details
+        connection_config:      Redshift connection details
 
-            stream_schema_message:  An instance of the DbSync class is typically used to load
-                                    data only from a certain singer tap stream.
+        stream_schema_message:  An instance of the DbSync class is typically used to load
+                                data only from a certain singer tap stream.
 
-                                    The stream_schema_message holds the destination schema
-                                    name and the JSON schema that will be used to
-                                    validate every RECORDS messages that comes from the stream.
-                                    Schema validation happening before creating CSV and before
-                                    uploading data into Redshift.
+                                The stream_schema_message holds the destination schema
+                                name and the JSON schema that will be used to
+                                validate every RECORDS messages that comes from the stream.
+                                Schema validation happening before creating CSV and before
+                                uploading data into Redshift.
 
-                                    If stream_schema_message is not defined then we can use
-                                    the DbSync instance as a generic purpose connection to
-                                    Redshift and can run individual queries. For example
-                                    collecting catalog informations from Redshift for caching
-                                    purposes.
+                                If stream_schema_message is not defined then we can use
+                                the DbSync instance as a generic purpose connection to
+                                Redshift and can run individual queries. For example
+                                collecting catalog informations from Redshift for caching
+                                purposes.
         """
         self.connection_config = connection_config
         self.stream_schema_message = stream_schema_message
@@ -447,9 +447,9 @@ class DbSync:
         # Generating key in S3 bucket
         bucket = self.connection_config["s3_bucket"]
         s3_acl = self.connection_config.get("s3_acl")
-        now = datetime.now().strftime('%Y-%m-%d')
+        now = datetime.now().strftime("%Y-%m-%d")
 
-        prefix = self.connection_config.get('s3_key_prefix', 'singer-archive-4_t')
+        prefix = self.connection_config.get("s3_key_prefix", "singer-archive-4_t")
 
         s3_key = f"{prefix}/{now}/{stream}_{suffix}"
 
@@ -466,9 +466,9 @@ class DbSync:
         return s3_key
 
     def delete_from_s3(self, s3_key):
-        '''
+        """
         Don't delete things
-        '''
+        """
         return None
 
     # pylint: disable=too-many-locals
@@ -499,7 +499,6 @@ class DbSync:
                 columns_with_trans.append(row)
 
             full_columns.append(row)
-
 
         metrics = {}
 
@@ -594,11 +593,11 @@ class DbSync:
 
                     schemaless_stage_table = stage_table.split(".")[1]
                     cols = [
-                            c["name"]
-                            for c in full_columns
-                            if c['name'] != '"_SDC_SEQUENCE"'
+                        c["name"]
+                        for c in full_columns
+                        if c["name"] != '"_SDC_SEQUENCE"'
                     ]
-                    cols = ', '.join(sorted(cols))
+                    cols = ", ".join(sorted(cols))
 
                     sql = f"""
                         DROP TABLE IF EXISTS {sequenced_table};
@@ -681,14 +680,13 @@ class DbSync:
                                     "stage.{c} = target.{c}".format(c=pkey)
                                     for pkey in names
                                 ]
-                            )
+                            ),
                         )
 
                         self.logger.info("Running query: {}".format(update_sql))
                         cur.execute(update_sql)
 
-
-                        columns = ','.join([c['name'] for c in columns_with_trans])
+                        columns = ",".join([c["name"] for c in columns_with_trans])
                         update_sql = f"""
                             INSERT INTO {history_table} ( {columns} )
                             SELECT {columns}
@@ -697,7 +695,6 @@ class DbSync:
                         """
                         self.logger.info("Running query: {}".format(update_sql))
                         cur.execute(update_sql)
-
 
                         update_sql = """
                         INSERT INTO {} ({})
@@ -823,25 +820,23 @@ class DbSync:
         )
 
         sort_key = (
-                "SORTKEY ({}, _sys_log_file, _sys_log_position, _sys_transaction_lineno)".format(
-                    ",".join(primary_column_names(stream_schema_message))
-                )
-                if len(stream_schema_message["key_properties"])
-                else "SORTKEY (_sys_log_file, _sys_log_position, _sys_transaction_lineno)"
+            "SORTKEY ({}, _sys_log_file, _sys_log_position, _sys_transaction_lineno)".format(
+                ",".join(primary_column_names(stream_schema_message))
+            )
+            if len(stream_schema_message["key_properties"])
+            else "SORTKEY (_sys_log_file, _sys_log_position, _sys_transaction_lineno)"
         )
         dist_key = (
-                "DISTKEY({})".format(
-                    primary_column_names(stream_schema_message)[0]
-                )
-                if len(stream_schema_message["key_properties"])
-                else ""
+            "DISTKEY({})".format(primary_column_names(stream_schema_message)[0])
+            if len(stream_schema_message["key_properties"])
+            else ""
         )
 
         return "CREATE TABLE IF NOT EXISTS {} ({}) {} {}".format(
             self.table_name(stream, is_stage),
             ", ".join(columns + primary_key),
             dist_key,
-            sort_key
+            sort_key,
         )
 
     def drop_table_query(self, stream=None, is_stage=False):
