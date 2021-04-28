@@ -712,7 +712,7 @@ class DbSync:
                 else:
                     run(
                         f"""INSERT INTO {target_table} ({columns})
-                        SELECT {stage_tables}
+                        SELECT {stage_columns}
                         FROM {stage_table} s
                     """
                     )
