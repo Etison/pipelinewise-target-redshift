@@ -687,12 +687,23 @@ class DbSync:
                         self.logger.info("Running query: {}".format(update_sql))
                         cur.execute(update_sql)
 
-                        # insert into history where sys_end_time is not null
+
+                        columns = ','.join([c['name'] for c in columns_with_trans])
+                        update_sql = f"""
+                            INSERT INTO {history_table} ( {columns} )
+                            SELECT {columns}
+                            FROM {stage_table}
+                            WHERE _sdc_deleted_at IS NOT NULL
+                        """
+                        self.logger.info("Running query: {}".format(update_sql))
+                        cur.execute(update_sql)
+
+
                         update_sql = """
                         INSERT INTO {} ({})
                         SELECT {}
                         FROM {} s
-                        WHERE _sdc_deleted_at IS NOT NULL
+                        WHERE _sys_end_time IS NOT NULL
                         """.format(
                             history_table,
                             ", ".join([c["name"] for c in columns_with_trans]),
@@ -704,7 +715,6 @@ class DbSync:
                         self.logger.info("Running query: {}".format(update_sql))
                         cur.execute(update_sql)
 
-                        # delete anything that has a _sys_end_time set on it
                         update_sql = """
                         DELETE FROM {} WHERE _sys_end_time IS NOT NULL
                         """.format(
@@ -719,6 +729,7 @@ class DbSync:
                     insert_sql = """INSERT INTO {} ({})
                         SELECT {}
                         FROM {} s
+                        WHERE _sdc_deleted_at IS NOT NULL
                     """.format(
                         target_table,
                         ", ".join([c["name"] for c in columns_with_trans]),
