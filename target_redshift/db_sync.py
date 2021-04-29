@@ -21,7 +21,8 @@ LONG_VARCHAR_LENGTH = 65535
 
 def execute_sql(cursor, logger, sql):
     logger.info("Running create stage table: {}".format(sql))
-    return cursor.execute(sql)
+    cursor.execute(sql)
+    return True
 
 
 def validate_config(config):
@@ -569,15 +570,16 @@ class DbSync:
                     manifest_option = ""
 
                 # Step 4: Load into the stage table
-                columns = ", ".join([c["name"] for c in full_columns])
+                all_columns = ", ".join([c["name"] for c in full_columns])
+                columns = ", ".join([c["name"] for c in columns_with_trans])
                 s3_bucket = self.connection_config["s3_bucket"]
 
                 run(
-                    f"""COPY {stage_table} ({columns}) FROM 's3://{s3_bucket}/{s3_key}'
+                    f"""COPY {stage_table} ({all_columns}) FROM 's3://{s3_bucket}/{s3_key}'
                     {copy_credentials}
                     {copy_options}
                     DELIMITER ',' REMOVEQUOTES ESCAPE{compression_option} ACCEPTINVCHARS
-                    {manifest}
+                    {manifest_option}
                 """
                 )
 
@@ -624,6 +626,7 @@ class DbSync:
                     join_condition = " AND ".join(
                         ["ss.{c} = s.{c}".format(c=pkey) for pkey in names]
                     )
+
                     stage_columns = ", ".join(
                         ["s.{}".format(c["name"]) for c in columns_with_trans]
                     )
@@ -670,7 +673,6 @@ class DbSync:
                         """
                         )
 
-                        columns = ",".join([c["name"] for c in columns_with_trans])
                         run(
                             f"""
                             INSERT INTO {history_table} ( {columns} )
@@ -683,8 +685,8 @@ class DbSync:
                         run(
                             f"""
                         INSERT INTO {history_table} ({columns})
-                        SELECT {stage_columns}
-                        FROM {target_table} s
+                        SELECT {columns}
+                        FROM {target_table}
                         WHERE _sys_end_time IS NOT NULL
                         """
                         )
