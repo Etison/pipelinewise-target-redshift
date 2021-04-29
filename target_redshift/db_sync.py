@@ -574,6 +574,10 @@ class DbSync:
                 columns = ", ".join([c["name"] for c in columns_with_trans])
                 s3_bucket = self.connection_config["s3_bucket"]
 
+                stage_columns = ", ".join(
+                    ["s.{}".format(c["name"]) for c in columns_with_trans]
+                )
+
                 run(
                     f"""COPY {stage_table} ({all_columns}) FROM 's3://{s3_bucket}/{s3_key}'
                     {copy_credentials}
@@ -627,9 +631,6 @@ class DbSync:
                         ["ss.{c} = s.{c}".format(c=pkey) for pkey in names]
                     )
 
-                    stage_columns = ", ".join(
-                        ["s.{}".format(c["name"]) for c in columns_with_trans]
-                    )
 
                     run(
                         f"""
