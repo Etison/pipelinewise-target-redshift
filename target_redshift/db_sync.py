@@ -12,10 +12,17 @@ import re
 import sys
 import time
 from datetime import datetime
+from functools import partial
 
 DEFAULT_VARCHAR_LENGTH = 256
 SHORT_VARCHAR_LENGTH = 256
 LONG_VARCHAR_LENGTH = 65535
+
+
+def execute_sql(cursor, logger, sql):
+    logger.info("Running create stage table: {}".format(sql))
+    cursor.execute(sql)
+    return True
 
 
 def validate_config(config):
@@ -226,22 +233,22 @@ def stream_name_to_dict(stream_name, separator="-"):
 class DbSync:
     def __init__(self, connection_config, stream_schema_message=None, table_cache=None):
         """
-            connection_config:      Redshift connection details
+        connection_config:      Redshift connection details
 
-            stream_schema_message:  An instance of the DbSync class is typically used to load
-                                    data only from a certain singer tap stream.
+        stream_schema_message:  An instance of the DbSync class is typically used to load
+                                data only from a certain singer tap stream.
 
-                                    The stream_schema_message holds the destination schema
-                                    name and the JSON schema that will be used to
-                                    validate every RECORDS messages that comes from the stream.
-                                    Schema validation happening before creating CSV and before
-                                    uploading data into Redshift.
+                                The stream_schema_message holds the destination schema
+                                name and the JSON schema that will be used to
+                                validate every RECORDS messages that comes from the stream.
+                                Schema validation happening before creating CSV and before
+                                uploading data into Redshift.
 
-                                    If stream_schema_message is not defined then we can use
-                                    the DbSync instance as a generic purpose connection to
-                                    Redshift and can run individual queries. For example
-                                    collecting catalog informations from Redshift for caching
-                                    purposes.
+                                If stream_schema_message is not defined then we can use
+                                the DbSync instance as a generic purpose connection to
+                                Redshift and can run individual queries. For example
+                                collecting catalog informations from Redshift for caching
+                                purposes.
         """
         self.connection_config = connection_config
         self.stream_schema_message = stream_schema_message
@@ -447,9 +454,9 @@ class DbSync:
         # Generating key in S3 bucket
         bucket = self.connection_config["s3_bucket"]
         s3_acl = self.connection_config.get("s3_acl")
-        now = datetime.now().strftime('%Y-%m-%d')
+        now = datetime.now().strftime("%Y-%m-%d")
 
-        prefix = self.connection_config.get('s3_key_prefix', 'singer-archive-4_t')
+        prefix = self.connection_config.get("s3_key_prefix", "singer-archive-4_t")
 
         s3_key = f"{prefix}/{now}/{stream}_{suffix}"
 
@@ -466,9 +473,9 @@ class DbSync:
         return s3_key
 
     def delete_from_s3(self, s3_key):
-        '''
+        """
         Don't delete things
-        '''
+        """
         return None
 
     # pylint: disable=too-many-locals
@@ -500,7 +507,6 @@ class DbSync:
 
             full_columns.append(row)
 
-
         metrics = {}
 
         with self.open_connection() as connection:
@@ -508,11 +514,11 @@ class DbSync:
                 inserts = 0
                 updates = 0
 
-                # Step 1: Create stage table if not exists
-                cur.execute(self.drop_table_query(is_stage=True))
-                sql = self.create_table_query(is_stage=True)
-                self.logger.info("Running create stage table: {}".format(sql))
-                cur.execute(sql)
+                run = partial(execute_sql, cur, self.logger)
+
+                run(self.drop_table_query(is_stage=True))
+
+                run(self.create_table_query(is_stage=True))
 
                 # Step 2: Generate copy credentials - prefer role if provided, otherwise use access and secret keys
                 copy_credentials = (
@@ -564,23 +570,18 @@ class DbSync:
                     manifest_option = ""
 
                 # Step 4: Load into the stage table
-                copy_sql = """COPY {table} ({columns}) FROM 's3://{s3_bucket}/{s3_key}'
+                all_columns = ", ".join([c["name"] for c in full_columns])
+                columns = ", ".join([c["name"] for c in columns_with_trans])
+                s3_bucket = self.connection_config["s3_bucket"]
+
+                run(
+                    f"""COPY {stage_table} ({all_columns}) FROM 's3://{s3_bucket}/{s3_key}'
                     {copy_credentials}
                     {copy_options}
                     DELIMITER ',' REMOVEQUOTES ESCAPE{compression_option} ACCEPTINVCHARS
-                    {manifest}
-                """.format(
-                    table=stage_table,
-                    columns=", ".join([c["name"] for c in full_columns]),
-                    s3_bucket=self.connection_config["s3_bucket"],
-                    s3_key=s3_key,
-                    copy_credentials=copy_credentials,
-                    copy_options=copy_options,
-                    compression_option=compression_option,
-                    manifest=manifest_option,
+                    {manifest_option}
+                """
                 )
-                self.logger.info("Running query: {}".format(copy_sql))
-                cur.execute(copy_sql)
 
                 # Step 5/a: Insert or Update if primary key defined
                 #           Do UPDATE first and second INSERT to calculate
@@ -593,14 +594,16 @@ class DbSync:
                     pkeys = ", ".join(names)
 
                     schemaless_stage_table = stage_table.split(".")[1]
-                    cols = [
-                            c["name"]
-                            for c in full_columns
-                            if c['name'] != '"_SDC_SEQUENCE"'
-                    ]
-                    cols = ', '.join(sorted(cols))
 
-                    sql = f"""
+                    cols = [
+                        c["name"]
+                        for c in full_columns
+                        if c["name"] != '"_SDC_SEQUENCE"'
+                    ]
+                    cols = ", ".join(sorted(cols))
+
+                    run(
+                        f"""
                         DROP TABLE IF EXISTS {sequenced_table};
 
                         CREATE TABLE {sequenced_table} AS
@@ -618,32 +621,25 @@ class DbSync:
 
                         ALTER TABLE {sequenced_table} RENAME TO {schemaless_stage_table};
                     """
-
-                    self.logger.info("Running query: {}".format(sql))
-                    cur.execute(sql)
+                    )
 
                     join_condition = " AND ".join(
                         ["ss.{c} = s.{c}".format(c=pkey) for pkey in names]
                     )
 
-                    sql = """
-                    INSERT INTO {history} ({columns})
+                    stage_columns = ", ".join(
+                        ["s.{}".format(c["name"]) for c in columns_with_trans]
+                    )
+
+                    run(
+                        f"""
+                    INSERT INTO {history_table} ({columns})
                       SELECT {stage_columns} FROM {stage_table} s LEFT JOIN
                       (SELECT {pkeys}, max(_sdc_sequence) AS "_sdc_sequence" FROM {stage_table} s GROUP BY {pkeys})
                       ss ON {join_condition} AND ss._sdc_sequence = s._sdc_sequence
                     WHERE ss._sdc_sequence IS NULL
-                    """.format(
-                        pkeys=pkeys,
-                        stage_table=stage_table,
-                        history=history_table,
-                        columns=", ".join([c["name"] for c in columns_with_trans]),
-                        stage_columns=", ".join(
-                            ["s.{}".format(c["name"]) for c in columns_with_trans]
-                        ),
-                        join_condition=join_condition,
+                    """
                     )
-                    self.logger.info("Running query: {}".format(sql))
-                    cur.execute(sql)
 
                     join_condition = " AND ".join(
                         [
@@ -653,109 +649,80 @@ class DbSync:
                             for pkey in names
                         ]
                     )
-                    sql = """
+                    sql = run(
+                        f"""
                     DELETE FROM {stage_table}
                     USING 
                       (SELECT {pkeys}, max(_sdc_sequence) AS "_sdc_sequence" FROM {stage_table} s GROUP BY {pkeys}) ss 
                     WHERE {join_condition} AND ss._sdc_sequence <> {stage_table}._sdc_sequence
-                    """.format(
-                        pkeys=pkeys,
-                        stage_table=stage_table,
-                        join_condition=join_condition,
+                    """
                     )
-                    self.logger.info("Running query: {}".format(sql))
-                    cur.execute(sql)
 
                     if not self.skip_updates:
-                        update_sql = """
+                        join_condition = " AND ".join(
+                            ["stage.{c} = target.{c}".format(c=pkey) for pkey in names]
+                        )
+
+                        run(
+                            f"""
                             UPDATE {target_table}
                             SET _sys_end_time = stage._sys_updated_at
                             FROM {stage_table} stage
                             JOIN {target_table} target
                             ON {join_condition}
-                        """.format(
-                            target_table=target_table,
-                            stage_table=stage_table,
-                            join_condition=" AND ".join(
-                                [
-                                    "stage.{c} = target.{c}".format(c=pkey)
-                                    for pkey in names
-                                ]
-                            )
+                        """
                         )
 
-                        self.logger.info("Running query: {}".format(update_sql))
-                        cur.execute(update_sql)
+                        run(
+                            f"""
+                            INSERT INTO {history_table} ( {columns} )
+                            SELECT {columns}
+                            FROM {stage_table}
+                            WHERE _sdc_deleted_at IS NOT NULL
+                        """
+                        )
 
-                        # insert into history where sys_end_time is not null
-                        update_sql = """
-                        INSERT INTO {} ({})
-                        SELECT {}
-                        FROM {} s
+                        run(
+                            f"""
+                        INSERT INTO {history_table} ({columns})
+                        SELECT {columns}
+                        FROM {target_table}
                         WHERE _sys_end_time IS NOT NULL
-                        """.format(
-                            history_table,
-                            ", ".join([c["name"] for c in columns_with_trans]),
-                            ", ".join(
-                                ["s.{}".format(c["name"]) for c in columns_with_trans]
-                            ),
-                            target_table,
-                        )
-                        self.logger.info("Running query: {}".format(update_sql))
-                        cur.execute(update_sql)
-
-                        # delete anything that has a _sys_end_time set on it
-                        update_sql = """
-                        DELETE FROM {} WHERE _sys_end_time IS NOT NULL
-                        """.format(
-                            target_table
+                        """
                         )
 
-                        self.logger.info("Running query: {}".format(update_sql))
-                        cur.execute(update_sql)
+                        run(
+                            f"""
+                        DELETE FROM {target_table} WHERE _sys_end_time IS NOT NULL
+                        """
+                        )
+
                         updates = cur.rowcount
 
                     # Step 5/a/2: Insert new records
-                    insert_sql = """INSERT INTO {} ({})
-                        SELECT {}
-                        FROM {} s
-                    """.format(
-                        target_table,
-                        ", ".join([c["name"] for c in columns_with_trans]),
-                        ", ".join(
-                            ["s.{}".format(c["name"]) for c in columns_with_trans]
-                        ),
-                        stage_table,
+                    run(
+                        f"""INSERT INTO {target_table} ({columns})
+                        SELECT {stage_columns}
+                        FROM {stage_table} s
+                        WHERE _sdc_deleted_at IS NOT NULL
+                    """
                     )
-                    self.logger.info("Running query: {}".format(insert_sql))
-                    try:
-                        cur.execute(insert_sql)
-                    except Exception as e:
-                        self.logger.info(
-                            "FAILED AT RUNNING QUERY: {}".format(insert_sql)
-                        )
-                        raise e
+
                     inserts = cur.rowcount
 
                 # Step 5/b: Insert only if no primary key
                 else:
-                    insert_sql = """INSERT INTO {} ({})
-                        SELECT {}
-                        FROM {} s
-                    """.format(
-                        target_table,
-                        ", ".join([c["name"] for c in columns_with_trans]),
-                        ", ".join(
-                            ["s.{}".format(c["name"]) for c in columns_with_trans]
-                        ),
-                        stage_table,
+                    run(
+                        f"""INSERT INTO {target_table} ({columns})
+                        SELECT {stage_columns}
+                        FROM {stage_table} s
+                    """
                     )
-                    self.logger.debug("Running query: {}".format(insert_sql))
-                    cur.execute(insert_sql)
+
                     inserts = cur.rowcount
 
                 # Step 6: Drop stage table
-                cur.execute(self.drop_table_query(is_stage=True))
+                run(self.drop_table_query(is_stage=True))
 
                 metrics[self.table_name(stream, False)] = {
                     "inserts": inserts,
@@ -812,25 +779,23 @@ class DbSync:
         )
 
         sort_key = (
-                "SORTKEY ({}, _sys_log_file, _sys_log_position, _sys_transaction_lineno)".format(
-                    ",".join(primary_column_names(stream_schema_message))
-                )
-                if len(stream_schema_message["key_properties"])
-                else "SORTKEY (_sys_log_file, _sys_log_position, _sys_transaction_lineno)"
+            "SORTKEY ({}, _sys_log_file, _sys_log_position, _sys_transaction_lineno)".format(
+                ",".join(primary_column_names(stream_schema_message))
+            )
+            if len(stream_schema_message["key_properties"])
+            else "SORTKEY (_sys_log_file, _sys_log_position, _sys_transaction_lineno)"
         )
         dist_key = (
-                "DISTKEY({})".format(
-                    primary_column_names(stream_schema_message)[0]
-                )
-                if len(stream_schema_message["key_properties"])
-                else ""
+            "DISTKEY({})".format(primary_column_names(stream_schema_message)[0])
+            if len(stream_schema_message["key_properties"])
+            else ""
         )
 
         return "CREATE TABLE IF NOT EXISTS {} ({}) {} {}".format(
             self.table_name(stream, is_stage),
             ", ".join(columns + primary_key),
             dist_key,
-            sort_key
+            sort_key,
         )
 
     def drop_table_query(self, stream=None, is_stage=False):
