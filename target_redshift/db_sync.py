@@ -663,7 +663,7 @@ class DbSync:
                         run(
                             f"""
                             UPDATE {target_table}
-                            SET _sys_end_time = COALESCE(stage._sys_updated_at, stage._sdc_deleted_at)
+                            SET _sys_end_time = stage._sys_updated_at
                             FROM {stage_table} stage
                             JOIN {target_table} target
                             ON {join_condition}
