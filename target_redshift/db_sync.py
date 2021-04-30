@@ -705,7 +705,7 @@ class DbSync:
                         f"""INSERT INTO {target_table} ({columns})
                         SELECT {stage_columns}
                         FROM {stage_table} s
-                        WHERE _sdc_deleted_at IS NOT NULL
+                        WHERE _sdc_deleted_at IS NULL
                     """
                     )
 
